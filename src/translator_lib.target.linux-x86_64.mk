@@ -28,6 +28,7 @@ LOCAL_SRC_FILES := \
 	third_party/angle/src/common/debug.cpp \
 	third_party/angle/src/common/event_tracer.cpp \
 	third_party/angle/src/common/mathutil.cpp \
+	third_party/angle/src/common/tls.cpp \
 	third_party/angle/src/common/utilities.cpp \
 	third_party/angle/src/compiler/translator/BuiltInFunctionEmulator.cpp \
 	third_party/angle/src/compiler/translator/CodeGen.cpp \
@@ -56,6 +57,7 @@ LOCAL_SRC_FILES := \
 	third_party/angle/src/compiler/translator/RemoveTree.cpp \
 	third_party/angle/src/compiler/translator/RewriteElseBlocks.cpp \
 	third_party/angle/src/compiler/translator/SearchSymbol.cpp \
+	third_party/angle/src/compiler/translator/StructureHLSL.cpp \
 	third_party/angle/src/compiler/translator/SymbolTable.cpp \
 	third_party/angle/src/compiler/translator/TranslatorESSL.cpp \
 	third_party/angle/src/compiler/translator/TranslatorGLSL.cpp \
@@ -63,6 +65,8 @@ LOCAL_SRC_FILES := \
 	third_party/angle/src/compiler/translator/Types.cpp \
 	third_party/angle/src/compiler/translator/UnfoldShortCircuit.cpp \
 	third_party/angle/src/compiler/translator/UnfoldShortCircuitAST.cpp \
+	third_party/angle/src/compiler/translator/UniformHLSL.cpp \
+	third_party/angle/src/compiler/translator/UtilsHLSL.cpp \
 	third_party/angle/src/compiler/translator/ValidateLimitations.cpp \
 	third_party/angle/src/compiler/translator/ValidateOutputs.cpp \
 	third_party/angle/src/compiler/translator/VariableInfo.cpp \
@@ -76,7 +80,6 @@ LOCAL_SRC_FILES := \
 	third_party/angle/src/compiler/translator/glslang_lex.cpp \
 	third_party/angle/src/compiler/translator/glslang_tab.cpp \
 	third_party/angle/src/compiler/translator/intermOut.cpp \
-	third_party/angle/src/compiler/translator/ossource_posix.cpp \
 	third_party/angle/src/compiler/translator/parseConst.cpp \
 	third_party/angle/src/compiler/translator/timing/RestrictFragmentShaderTiming.cpp \
 	third_party/angle/src/compiler/translator/timing/RestrictVertexShaderTiming.cpp \
@@ -139,6 +142,7 @@ MY_DEFS_Debug := \
 	'-DSYSTEM_NATIVELY_SIGNALS_MEMORY_PRESSURE' \
 	'-DENABLE_EGLIMAGE=1' \
 	'-DCLD_VERSION=1' \
+	'-DCLD_DATA_FROM_STATIC' \
 	'-DENABLE_PRINTING=1' \
 	'-DENABLE_MANAGED_USERS=1' \
 	'-DDATA_REDUCTION_FALLBACK_HOST="http://compress.googlezip.net:80/"' \
@@ -147,7 +151,6 @@ MY_DEFS_Debug := \
 	'-DDATA_REDUCTION_PROXY_PROBE_URL="http://check.googlezip.net/connect"' \
 	'-DDATA_REDUCTION_PROXY_WARMUP_URL="http://www.gstatic.com/generate_204"' \
 	'-DVIDEO_HOLE=1' \
-	'-DNOMINMAX' \
 	'-DUSE_OPENSSL=1' \
 	'-DUSE_OPENSSL_CERTS=1' \
 	'-DANDROID' \
@@ -176,6 +179,9 @@ LOCAL_CPPFLAGS_Debug := \
 	-fno-threadsafe-statics \
 	-fvisibility-inlines-hidden \
 	-Wno-deprecated \
+	-std=gnu++11 \
+	-Wno-narrowing \
+	-Wno-literal-suffix \
 	-Wno-non-virtual-dtor \
 	-Wno-sign-promo \
 	-Wno-non-virtual-dtor
@@ -236,6 +242,7 @@ MY_DEFS_Release := \
 	'-DSYSTEM_NATIVELY_SIGNALS_MEMORY_PRESSURE' \
 	'-DENABLE_EGLIMAGE=1' \
 	'-DCLD_VERSION=1' \
+	'-DCLD_DATA_FROM_STATIC' \
 	'-DENABLE_PRINTING=1' \
 	'-DENABLE_MANAGED_USERS=1' \
 	'-DDATA_REDUCTION_FALLBACK_HOST="http://compress.googlezip.net:80/"' \
@@ -244,7 +251,6 @@ MY_DEFS_Release := \
 	'-DDATA_REDUCTION_PROXY_PROBE_URL="http://check.googlezip.net/connect"' \
 	'-DDATA_REDUCTION_PROXY_WARMUP_URL="http://www.gstatic.com/generate_204"' \
 	'-DVIDEO_HOLE=1' \
-	'-DNOMINMAX' \
 	'-DUSE_OPENSSL=1' \
 	'-DUSE_OPENSSL_CERTS=1' \
 	'-DANDROID' \
@@ -273,6 +279,9 @@ LOCAL_CPPFLAGS_Release := \
 	-fno-threadsafe-statics \
 	-fvisibility-inlines-hidden \
 	-Wno-deprecated \
+	-std=gnu++11 \
+	-Wno-narrowing \
+	-Wno-literal-suffix \
 	-Wno-non-virtual-dtor \
 	-Wno-sign-promo \
 	-Wno-non-virtual-dtor
