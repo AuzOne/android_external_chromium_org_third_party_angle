@@ -1,6 +1,6 @@
 #include "precompiled.h"
 //
-// Copyright (c) 2013 The ANGLE Project Authors. All rights reserved.
+// Copyright (c) 2013-2014 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -18,6 +18,7 @@
 #include "libGLESv2/main.h"
 #include "libGLESv2/Query.h"
 #include "libGLESv2/ProgramBinary.h"
+#include "libGLESv2/TransformFeedback.h"
 
 #include "common/mathutil.h"
 #include "common/utilities.h"
@@ -111,7 +112,7 @@ bool ValidBufferTarget(const Context *context, GLenum target)
 
       case GL_PIXEL_PACK_BUFFER:
       case GL_PIXEL_UNPACK_BUFFER:
-        return context->supportsPBOs();
+        return context->getCaps().extensions.pixelBufferObject;
 
       case GL_COPY_READ_BUFFER:
       case GL_COPY_WRITE_BUFFER:
@@ -173,7 +174,7 @@ bool ValidImageSize(const gl::Context *context, GLenum target, GLint level, GLsi
         return false;
     }
 
-    if (!context->supportsNonPower2Texture() && (level != 0 || !gl::isPow2(width) || !gl::isPow2(height) || !gl::isPow2(depth)))
+    if (!context->getCaps().extensions.textureNPOT && (level != 0 || !gl::isPow2(width) || !gl::isPow2(height) || !gl::isPow2(depth)))
     {
         return false;
     }
@@ -261,7 +262,8 @@ bool ValidateRenderbufferStorageParameters(const gl::Context *context, GLenum ta
         return gl::error(GL_INVALID_VALUE, false);
     }
 
-    if (!gl::IsValidInternalFormat(internalformat, context))
+    const gl::Caps &caps = context->getCaps();
+    if (!gl::IsValidInternalFormat(internalformat, caps.extensions, context->getClientVersion()))
     {
         return gl::error(GL_INVALID_ENUM, false);
     }
@@ -281,9 +283,8 @@ bool ValidateRenderbufferStorageParameters(const gl::Context *context, GLenum ta
         return gl::error(GL_INVALID_OPERATION, false);
     }
 
-    if (!gl::IsColorRenderingSupported(internalformat, context) &&
-        !gl::IsDepthRenderingSupported(internalformat, context) &&
-        !gl::IsStencilRenderingSupported(internalformat, context))
+    const TextureCaps &formatCaps = caps.textureCaps.get(internalformat);
+    if (!formatCaps.colorRendering && !formatCaps.depthRendering && !formatCaps.stencilRendering)
     {
         return gl::error(GL_INVALID_ENUM, false);
     }
@@ -728,7 +729,7 @@ bool ValidateTexParamParameters(gl::Context *context, GLenum pname, GLint param)
         break;
 
       case GL_TEXTURE_MAX_ANISOTROPY_EXT:
-        if (!context->supportsTextureFilterAnisotropy())
+        if (!context->getCaps().extensions.textureFilterAnisotropic)
         {
             return gl::error(GL_INVALID_ENUM, false);
         }
@@ -1272,7 +1273,7 @@ bool ValidateCopyTexImageParametersBase(gl::Context* context, GLenum target, GLi
             return gl::error(GL_INVALID_VALUE, false);
         }
 
-        if (!IsValidInternalFormat(internalformat, context))
+        if (!IsValidInternalFormat(internalformat, context->getCaps().extensions, context->getClientVersion()))
         {
             return gl::error(GL_INVALID_ENUM, false);
         }
@@ -1286,6 +1287,120 @@ bool ValidateCopyTexImageParametersBase(gl::Context* context, GLenum target, GLi
 
     *textureFormatOut = textureInternalFormat;
     return true;
+}
+
+static bool ValidateDrawBase(const gl::Context *context, GLsizei count)
+{
+    if (count < 0)
+    {
+        return gl::error(GL_INVALID_VALUE, false);
+    }
+
+    // Check for mapped buffers
+    if (context->hasMappedBuffer(GL_ARRAY_BUFFER))
+    {
+        return gl::error(GL_INVALID_OPERATION, false);
+    }
+
+    // No-op if zero count
+    return (count > 0);
+}
+
+bool ValidateDrawArrays(const gl::Context *context, GLenum mode, GLint first, GLsizei count)
+{
+    if (first < 0)
+    {
+        return gl::error(GL_INVALID_VALUE, false);
+    }
+
+    gl::TransformFeedback *curTransformFeedback = context->getCurrentTransformFeedback();
+    if (curTransformFeedback && curTransformFeedback->isStarted() && !curTransformFeedback->isPaused() &&
+        curTransformFeedback->getDrawMode() != mode)
+    {
+        // It is an invalid operation to call DrawArrays or DrawArraysInstanced with a draw mode
+        // that does not match the current transform feedback object's draw mode (if transform feedback
+        // is active), (3.0.2, section 2.14, pg 86)
+        return gl::error(GL_INVALID_OPERATION, false);
+    }
+
+    if (!ValidateDrawBase(context, count))
+    {
+        return false;
+    }
+
+    return true;
+}
+
+bool ValidateDrawArraysInstanced(const gl::Context *context, GLenum mode, GLint first, GLsizei count, GLsizei primcount)
+{
+    if (primcount < 0)
+    {
+        return gl::error(GL_INVALID_VALUE, false);
+    }
+
+    if (!ValidateDrawArrays(context, mode, first, count))
+    {
+        return false;
+    }
+
+    // No-op if zero primitive count
+    return (primcount > 0);
+}
+
+bool ValidateDrawElements(const gl::Context *context, GLenum mode, GLsizei count, GLenum type, const GLvoid* indices)
+{
+    switch (type)
+    {
+      case GL_UNSIGNED_BYTE:
+      case GL_UNSIGNED_SHORT:
+        break;
+      case GL_UNSIGNED_INT:
+        if (!context->getCaps().extensions.elementIndexUint)
+        {
+            return gl::error(GL_INVALID_ENUM, false);
+        }
+        break;
+      default:
+        return gl::error(GL_INVALID_ENUM, false);
+    }
+
+    gl::TransformFeedback *curTransformFeedback = context->getCurrentTransformFeedback();
+    if (curTransformFeedback && curTransformFeedback->isStarted() && !curTransformFeedback->isPaused())
+    {
+        // It is an invalid operation to call DrawElements, DrawRangeElements or DrawElementsInstanced
+        // while transform feedback is active, (3.0.2, section 2.14, pg 86)
+        return gl::error(GL_INVALID_OPERATION, false);
+    }
+
+    // Check for mapped buffers
+    if (context->hasMappedBuffer(GL_ELEMENT_ARRAY_BUFFER))
+    {
+        return gl::error(GL_INVALID_OPERATION, false);
+    }
+
+    if (!ValidateDrawBase(context, count))
+    {
+        return false;
+    }
+
+    return true;
+}
+
+bool ValidateDrawElementsInstanced(const gl::Context *context, GLenum mode, GLsizei count, GLenum type,
+                                   const GLvoid *indices, GLsizei primcount)
+{
+    if (primcount < 0)
+    {
+        return gl::error(GL_INVALID_VALUE, false);
+    }
+
+    if (!ValidateDrawElements(context, mode, count, type, indices))
+    {
+        return false;
+    }
+
+    // No-op zero primitive count
+    return (primcount > 0);
 }
 
 }

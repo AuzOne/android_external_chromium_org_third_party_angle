@@ -166,10 +166,7 @@ BufferStorage11::BufferStorage11(Renderer11 *renderer)
 
 BufferStorage11::~BufferStorage11()
 {
-    for (auto it = mTypedBuffers.begin(); it != mTypedBuffers.end(); it++)
-    {
-        SafeDelete(it->second);
-    }
+    clear();
 }
 
 BufferStorage11 *BufferStorage11::makeBufferStorage11(BufferStorage *bufferStorage)
@@ -221,7 +218,7 @@ void BufferStorage11::setData(const void* data, size_t size, size_t offset)
     size_t requiredSize = size + offset;
     mSize = std::max(mSize, requiredSize);
 
-    if (data)
+    if (data && size > 0)
     {
         NativeBuffer11 *stagingBuffer = getStagingBuffer();
 
@@ -296,6 +293,13 @@ void BufferStorage11::copyData(BufferStorage* sourceStorage, size_t size, size_t
 
 void BufferStorage11::clear()
 {
+    for (auto it = mTypedBuffers.begin(); it != mTypedBuffers.end(); it++)
+    {
+        SafeDelete(it->second);
+    }
+
+    mTypedBuffers.clear();
+
     mSize = 0;
     mResolvedDataRevision = 0;
 }
@@ -499,15 +503,17 @@ void *BufferStorage11::map(GLbitfield access)
     ASSERT(!mMappedStorage);
 
     TypedBufferStorage11 *latestStorage = getLatestStorage();
-    ASSERT(latestStorage);
-
-    if (latestStorage->getUsage() == BUFFER_USAGE_PIXEL_PACK ||
-        latestStorage->getUsage() == BUFFER_USAGE_STAGING)
+    if (latestStorage &&
+        (latestStorage->getUsage() == BUFFER_USAGE_PIXEL_PACK ||
+         latestStorage->getUsage() == BUFFER_USAGE_STAGING))
     {
+        // Latest storage is mappable.
         mMappedStorage = latestStorage;
     }
     else
     {
+        // Fall back to using the staging buffer if the latest storage does
+        // not exist or is not CPU-accessible.
         mMappedStorage = getStagingBuffer();
     }
 
@@ -515,6 +521,12 @@ void *BufferStorage11::map(GLbitfield access)
     {
         // Out-of-memory
         return NULL;
+    }
+
+    if ((access & GL_MAP_WRITE_BIT) > 0)
+    {
+        // Update the data revision immediately, since the data might be changed at any time
+        mMappedStorage->setDataRevision(mMappedStorage->getDataRevision() + 1);
     }
 
     return mMappedStorage->map(access);
@@ -646,9 +658,12 @@ bool BufferStorage11::NativeBuffer11::resize(size_t size, bool preserveData)
 
     if (mNativeBuffer && preserveData)
     {
+        // We don't call resize if the buffer is big enough already.
+        ASSERT(mBufferSize <= size);
+
         D3D11_BOX srcBox;
         srcBox.left = 0;
-        srcBox.right = size;
+        srcBox.right = mBufferSize;
         srcBox.top = 0;
         srcBox.bottom = 1;
         srcBox.front = 0;

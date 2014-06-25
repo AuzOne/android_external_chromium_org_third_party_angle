@@ -21,18 +21,18 @@
 namespace gl
 {
 
-FramebufferAttachmentInterface::FramebufferAttachmentInterface()
+FramebufferAttachmentImpl::FramebufferAttachmentImpl()
 {
 }
 
-// The default case for classes inherited from FramebufferAttachmentInterface is not to
+// The default case for classes inherited from FramebufferAttachmentImpl is not to
 // need to do anything upon the reference count to the parent FramebufferAttachment incrementing
 // or decrementing.
-void FramebufferAttachmentInterface::addProxyRef(const FramebufferAttachment *proxy)
+void FramebufferAttachmentImpl::addProxyRef(const FramebufferAttachment *proxy)
 {
 }
 
-void FramebufferAttachmentInterface::releaseProxy(const FramebufferAttachment *proxy)
+void FramebufferAttachmentImpl::releaseProxy(const FramebufferAttachment *proxy)
 {
 }
 
@@ -105,9 +105,24 @@ unsigned int Texture2DAttachment::getSerial() const
     return mTexture2D->getRenderTargetSerial(mLevel);
 }
 
-bool Texture2DAttachment::isTexture() const
+GLuint Texture2DAttachment::id() const
 {
-    return true;
+    return mTexture2D->id();
+}
+
+GLenum Texture2DAttachment::type() const
+{
+    return GL_TEXTURE_2D;
+}
+
+GLint Texture2DAttachment::mipLevel() const
+{
+    return mLevel;
+}
+
+GLint Texture2DAttachment::layer() const
+{
+    return 0;
 }
 
 unsigned int Texture2DAttachment::getTextureSerial() const
@@ -185,9 +200,24 @@ unsigned int TextureCubeMapAttachment::getSerial() const
     return mTextureCubeMap->getRenderTargetSerial(mFaceTarget, mLevel);
 }
 
-bool TextureCubeMapAttachment::isTexture() const
+GLuint TextureCubeMapAttachment::id() const
 {
-    return true;
+    return mTextureCubeMap->id();
+}
+
+GLenum TextureCubeMapAttachment::type() const
+{
+    return mFaceTarget;
+}
+
+GLint TextureCubeMapAttachment::mipLevel() const
+{
+    return mLevel;
+}
+
+GLint TextureCubeMapAttachment::layer() const
+{
+    return 0;
 }
 
 unsigned int TextureCubeMapAttachment::getTextureSerial() const
@@ -265,9 +295,24 @@ unsigned int Texture3DAttachment::getSerial() const
     return mTexture3D->getRenderTargetSerial(mLevel, mLayer);
 }
 
-bool Texture3DAttachment::isTexture() const
+GLuint Texture3DAttachment::id() const
 {
-    return true;
+    return mTexture3D->id();
+}
+
+GLenum Texture3DAttachment::type() const
+{
+    return GL_TEXTURE_3D;
+}
+
+GLint Texture3DAttachment::mipLevel() const
+{
+    return mLevel;
+}
+
+GLint Texture3DAttachment::layer() const
+{
+    return mLayer;
 }
 
 unsigned int Texture3DAttachment::getTextureSerial() const
@@ -343,9 +388,24 @@ unsigned int Texture2DArrayAttachment::getSerial() const
     return mTexture2DArray->getRenderTargetSerial(mLevel, mLayer);
 }
 
-bool Texture2DArrayAttachment::isTexture() const
+GLuint Texture2DArrayAttachment::id() const
 {
-    return true;
+    return mTexture2DArray->id();
+}
+
+GLenum Texture2DArrayAttachment::type() const
+{
+    return GL_TEXTURE_2D_ARRAY;
+}
+
+GLint Texture2DArrayAttachment::mipLevel() const
+{
+    return mLevel;
+}
+
+GLint Texture2DArrayAttachment::layer() const
+{
+    return mLayer;
 }
 
 unsigned int Texture2DArrayAttachment::getTextureSerial() const
@@ -355,137 +415,280 @@ unsigned int Texture2DArrayAttachment::getTextureSerial() const
 
 ////// FramebufferAttachment Implementation //////
 
-FramebufferAttachment::FramebufferAttachment(rx::Renderer *renderer, GLuint id, FramebufferAttachmentInterface *instance) : RefCountObject(id)
+FramebufferAttachment::FramebufferAttachment(GLuint id, FramebufferAttachmentImpl *instance)
+  : RefCountObject(id),
+    mImpl(instance)
 {
-    ASSERT(instance != NULL);
-    mInstance = instance;
-
-    ASSERT(renderer != NULL);
-    mRenderer = renderer;
+    ASSERT(mImpl != NULL);
 }
 
 FramebufferAttachment::~FramebufferAttachment()
 {
-    delete mInstance;
+    SafeDelete(mImpl);
 }
 
-// The FramebufferAttachmentInterface contained in this FramebufferAttachment may need to maintain
+// The FramebufferAttachmentImpl contained in this FramebufferAttachment may need to maintain
 // its own reference count, so we pass it on here.
 void FramebufferAttachment::addRef() const
 {
-    mInstance->addProxyRef(this);
+    mImpl->addProxyRef(this);
 
     RefCountObject::addRef();
 }
 
 void FramebufferAttachment::release() const
 {
-    mInstance->releaseProxy(this);
+    mImpl->releaseProxy(this);
 
     RefCountObject::release();
 }
 
 rx::RenderTarget *FramebufferAttachment::getRenderTarget()
 {
-    return mInstance->getRenderTarget();
+    return mImpl->getRenderTarget();
 }
 
 rx::RenderTarget *FramebufferAttachment::getDepthStencil()
 {
-    return mInstance->getDepthStencil();
+    return mImpl->getDepthStencil();
 }
 
 rx::TextureStorage *FramebufferAttachment::getTextureStorage()
 {
-    return mInstance->getTextureStorage();
+    return mImpl->getTextureStorage();
 }
 
 GLsizei FramebufferAttachment::getWidth() const
 {
-    return mInstance->getWidth();
+    return mImpl->getWidth();
 }
 
 GLsizei FramebufferAttachment::getHeight() const
 {
-    return mInstance->getHeight();
+    return mImpl->getHeight();
 }
 
 GLenum FramebufferAttachment::getInternalFormat() const
 {
-    return mInstance->getInternalFormat();
+    return mImpl->getInternalFormat();
 }
 
 GLenum FramebufferAttachment::getActualFormat() const
 {
-    return mInstance->getActualFormat();
+    return mImpl->getActualFormat();
 }
 
-GLuint FramebufferAttachment::getRedSize() const
+GLuint FramebufferAttachment::getRedSize(int clientVersion) const
 {
-    return gl::GetRedBits(getActualFormat(), mRenderer->getCurrentClientVersion());
+    if (gl::GetRedBits(getInternalFormat(), clientVersion) > 0)
+    {
+        return gl::GetRedBits(getActualFormat(), clientVersion);
+    }
+    else
+    {
+        return 0;
+    }
 }
 
-GLuint FramebufferAttachment::getGreenSize() const
+GLuint FramebufferAttachment::getGreenSize(int clientVersion) const
 {
-    return gl::GetGreenBits(getActualFormat(), mRenderer->getCurrentClientVersion());
+    if (gl::GetGreenBits(getInternalFormat(), clientVersion) > 0)
+    {
+        return gl::GetGreenBits(getActualFormat(), clientVersion);
+    }
+    else
+    {
+        return 0;
+    }
 }
 
-GLuint FramebufferAttachment::getBlueSize() const
+GLuint FramebufferAttachment::getBlueSize(int clientVersion) const
 {
-    return gl::GetBlueBits(getActualFormat(), mRenderer->getCurrentClientVersion());
+    if (gl::GetBlueBits(getInternalFormat(), clientVersion) > 0)
+    {
+        return gl::GetBlueBits(getActualFormat(), clientVersion);
+    }
+    else
+    {
+        return 0;
+    }
 }
 
-GLuint FramebufferAttachment::getAlphaSize() const
+GLuint FramebufferAttachment::getAlphaSize(int clientVersion) const
 {
-    return gl::GetAlphaBits(getActualFormat(), mRenderer->getCurrentClientVersion());
+    if (gl::GetAlphaBits(getInternalFormat(), clientVersion) > 0)
+    {
+        return gl::GetAlphaBits(getActualFormat(), clientVersion);
+    }
+    else
+    {
+        return 0;
+    }
 }
 
-GLuint FramebufferAttachment::getDepthSize() const
+GLuint FramebufferAttachment::getDepthSize(int clientVersion) const
 {
-    return gl::GetDepthBits(getActualFormat(), mRenderer->getCurrentClientVersion());
+    if (gl::GetDepthBits(getInternalFormat(), clientVersion) > 0)
+    {
+        return gl::GetDepthBits(getActualFormat(), clientVersion);
+    }
+    else
+    {
+        return 0;
+    }
 }
 
-GLuint FramebufferAttachment::getStencilSize() const
+GLuint FramebufferAttachment::getStencilSize(int clientVersion) const
 {
-    return gl::GetStencilBits(getActualFormat(), mRenderer->getCurrentClientVersion());
+    if (gl::GetStencilBits(getInternalFormat(), clientVersion) > 0)
+    {
+        return gl::GetStencilBits(getActualFormat(), clientVersion);
+    }
+    else
+    {
+        return 0;
+    }
 }
 
-GLenum FramebufferAttachment::getComponentType() const
+GLenum FramebufferAttachment::getComponentType(int clientVersion) const
 {
-    return gl::GetComponentType(getActualFormat(), mRenderer->getCurrentClientVersion());
+    return gl::GetComponentType(getActualFormat(), clientVersion);
 }
 
-GLenum FramebufferAttachment::getColorEncoding() const
+GLenum FramebufferAttachment::getColorEncoding(int clientVersion) const
 {
-    return gl::GetColorEncoding(getActualFormat(), mRenderer->getCurrentClientVersion());
-}
-
-GLsizei FramebufferAttachment::getSamples() const
-{
-    return mInstance->getSamples();
-}
-
-unsigned int FramebufferAttachment::getSerial() const
-{
-    return mInstance->getSerial();
+    return gl::GetColorEncoding(getActualFormat(), clientVersion);
 }
 
 bool FramebufferAttachment::isTexture() const
 {
-    return mInstance->isTexture();
+    return (type() != GL_RENDERBUFFER);
+}
+
+GLsizei FramebufferAttachment::getSamples() const
+{
+    return mImpl->getSamples();
+}
+
+unsigned int FramebufferAttachment::getSerial() const
+{
+    return mImpl->getSerial();
+}
+
+GLuint FramebufferAttachment::id() const
+{
+    return mImpl->id();
+}
+
+GLuint FramebufferAttachment::type() const
+{
+    return mImpl->type();
+}
+
+GLint FramebufferAttachment::mipLevel() const
+{
+    return mImpl->mipLevel();
+}
+
+GLint FramebufferAttachment::layer() const
+{
+    return mImpl->layer();
 }
 
 unsigned int FramebufferAttachment::getTextureSerial() const
 {
-    return mInstance->getTextureSerial();
+    return mImpl->getTextureSerial();
 }
 
-void FramebufferAttachment::setStorage(RenderbufferStorage *newStorage)
+void FramebufferAttachment::setImplementation(FramebufferAttachmentImpl *newImpl)
 {
-    ASSERT(newStorage != NULL);
+    ASSERT(newImpl != NULL);
 
-    delete mInstance;
-    mInstance = newStorage;
+    delete mImpl;
+    mImpl = newImpl;
+}
+
+RenderbufferAttachment::RenderbufferAttachment(Renderbuffer *renderbuffer)
+{
+    ASSERT(renderbuffer);
+    mRenderbuffer.set(renderbuffer);
+}
+
+RenderbufferAttachment::~RenderbufferAttachment()
+{
+    mRenderbuffer.set(NULL);
+}
+
+rx::RenderTarget *RenderbufferAttachment::getRenderTarget()
+{
+    return mRenderbuffer->getStorage()->getRenderTarget();
+}
+
+rx::RenderTarget *RenderbufferAttachment::getDepthStencil()
+{
+    return mRenderbuffer->getStorage()->getDepthStencil();
+}
+
+rx::TextureStorage *RenderbufferAttachment::getTextureStorage()
+{
+    UNREACHABLE();
+    return NULL;
+}
+
+GLsizei RenderbufferAttachment::getWidth() const
+{
+    return mRenderbuffer->getWidth();
+}
+
+GLsizei RenderbufferAttachment::getHeight() const
+{
+    return mRenderbuffer->getHeight();
+}
+
+GLenum RenderbufferAttachment::getInternalFormat() const
+{
+    return mRenderbuffer->getInternalFormat();
+}
+
+GLenum RenderbufferAttachment::getActualFormat() const
+{
+    return mRenderbuffer->getActualFormat();
+}
+
+GLsizei RenderbufferAttachment::getSamples() const
+{
+    return mRenderbuffer->getStorage()->getSamples();
+}
+
+unsigned int RenderbufferAttachment::getSerial() const
+{
+    return mRenderbuffer->getStorage()->getSerial();
+}
+
+GLuint RenderbufferAttachment::id() const
+{
+    return mRenderbuffer->id();
+}
+
+GLenum RenderbufferAttachment::type() const
+{
+    return GL_RENDERBUFFER;
+}
+
+GLint RenderbufferAttachment::mipLevel() const
+{
+    return 0;
+}
+
+GLint RenderbufferAttachment::layer() const
+{
+    return 0;
+}
+
+unsigned int RenderbufferAttachment::getTextureSerial() const
+{
+    UNREACHABLE();
+    return 0;
 }
 
 }

@@ -82,7 +82,8 @@ std::string ArrayString(unsigned int i)
     return (i == GL_INVALID_INDEX ? "" : "[" + Str(i) + "]");
 }
 
-const std::string DynamicHLSL::VERTEX_ATTRIBUTE_STUB_STRING = "@@ VERTEX ATTRIBUTES @@";
+const std::string VERTEX_ATTRIBUTE_STUB_STRING = "@@ VERTEX ATTRIBUTES @@";
+const std::string PIXEL_OUTPUT_STUB_STRING = "@@ PIXEL OUTPUT @@";
 
 DynamicHLSL::DynamicHLSL(rx::Renderer *const renderer)
     : mRenderer(renderer)
@@ -339,7 +340,7 @@ std::string DynamicHLSL::generateVaryingHLSL(VertexShader *shader, const std::st
     return varyingHLSL;
 }
 
-std::string DynamicHLSL::generateInputLayoutHLSL(const VertexFormat inputLayout[], const Attribute shaderAttributes[]) const
+std::string DynamicHLSL::generateVertexShaderForInputLayout(const std::string &sourceShader, const VertexFormat inputLayout[], const Attribute shaderAttributes[]) const
 {
     std::string structHLSL, initHLSL;
 
@@ -392,15 +393,73 @@ std::string DynamicHLSL::generateInputLayoutHLSL(const VertexFormat inputLayout[
         }
     }
 
-    return "struct VS_INPUT\n"
-           "{\n" +
-           structHLSL +
-           "};\n"
-           "\n"
-           "void initAttributes(VS_INPUT input)\n"
-           "{\n" +
-           initHLSL +
-           "}\n";
+    std::string replacementHLSL = "struct VS_INPUT\n"
+                                  "{\n" +
+                                  structHLSL +
+                                  "};\n"
+                                  "\n"
+                                  "void initAttributes(VS_INPUT input)\n"
+                                  "{\n" +
+                                  initHLSL +
+                                  "}\n";
+
+    std::string vertexHLSL(sourceShader);
+
+    size_t copyInsertionPos = vertexHLSL.find(VERTEX_ATTRIBUTE_STUB_STRING);
+    vertexHLSL.replace(copyInsertionPos, VERTEX_ATTRIBUTE_STUB_STRING.length(), replacementHLSL);
+
+    return vertexHLSL;
+}
+
+std::string DynamicHLSL::generatePixelShaderForOutputSignature(const std::string &sourceShader, const std::vector<PixelShaderOuputVariable> &outputVariables,
+                                                               bool usesFragDepth, const std::vector<GLenum> &outputLayout) const
+{
+    const int shaderModel = mRenderer->getMajorShaderModel();
+    std::string targetSemantic = (shaderModel >= 4) ? "SV_TARGET" : "COLOR";
+    std::string depthSemantic = (shaderModel >= 4) ? "SV_Depth" : "DEPTH";
+
+    std::string declarationHLSL;
+    std::string copyHLSL;
+    for (size_t i = 0; i < outputVariables.size(); i++)
+    {
+        const PixelShaderOuputVariable& outputVariable = outputVariables[i];
+        ASSERT(outputLayout.size() > outputVariable.outputIndex);
+
+        // FIXME(geofflang): Work around NVIDIA driver bug by repacking buffers
+        bool outputIndexEnabled = true; // outputLayout[outputVariable.outputIndex] != GL_NONE
+        if (outputIndexEnabled)
+        {
+            declarationHLSL += "    " + gl_d3d::HLSLTypeString(outputVariable.type) + " " + outputVariable.name +
+                               " : " + targetSemantic + Str(outputVariable.outputIndex) + ";\n";
+
+            copyHLSL += "    output." + outputVariable.name + " = " + outputVariable.source + ";\n";
+        }
+    }
+
+    if (usesFragDepth)
+    {
+        declarationHLSL += "    float gl_Depth : " + depthSemantic + ";\n";
+        copyHLSL += "    output.gl_Depth = gl_Depth; \n";
+    }
+
+    std::string replacementHLSL = "struct PS_OUTPUT\n"
+                                  "{\n" +
+                                  declarationHLSL +
+                                  "};\n"
+                                  "\n"
+                                  "PS_OUTPUT generateOutput()\n"
+                                  "{\n"
+                                  "    PS_OUTPUT output;\n" +
+                                  copyHLSL +
+                                  "    return output;\n"
+                                  "}\n";
+
+    std::string pixelHLSL(sourceShader);
+
+    size_t outputInsertionPos = pixelHLSL.find(PIXEL_OUTPUT_STUB_STRING);
+    pixelHLSL.replace(outputInsertionPos, PIXEL_OUTPUT_STUB_STRING.length(), replacementHLSL);
+
+    return pixelHLSL;
 }
 
 bool DynamicHLSL::generateShaderLinkHLSL(InfoLog &infoLog, int registers, const VaryingPacking packing,
@@ -408,7 +467,9 @@ bool DynamicHLSL::generateShaderLinkHLSL(InfoLog &infoLog, int registers, const 
                                          FragmentShader *fragmentShader, VertexShader *vertexShader,
                                          const std::vector<std::string>& transformFeedbackVaryings,
                                          std::vector<LinkedVarying> *linkedVaryings,
-                                         std::map<int, VariableLocation> *programOutputVars) const
+                                         std::map<int, VariableLocation> *programOutputVars,
+                                         std::vector<PixelShaderOuputVariable> *outPixelShaderKey,
+                                         bool *outUsesFragDepth) const
 {
     if (pixelHLSL.empty() || vertexHLSL.empty())
     {
@@ -448,7 +509,6 @@ bool DynamicHLSL::generateShaderLinkHLSL(InfoLog &infoLog, int registers, const 
     std::string varyingSemantic = (vertexShader->mUsesPointSize && shaderModel == 3) ? "COLOR" : "TEXCOORD";
     std::string targetSemantic = (shaderModel >= 4) ? "SV_Target" : "COLOR";
     std::string dxPositionSemantic = (shaderModel >= 4) ? "SV_Position" : "POSITION";
-    std::string depthSemantic = (shaderModel >= 4) ? "SV_Depth" : "DEPTH";
 
     std::string varyingHLSL = generateVaryingHLSL(vertexShader, varyingSemantic, linkedVaryings);
 
@@ -492,7 +552,7 @@ bool DynamicHLSL::generateShaderLinkHLSL(InfoLog &infoLog, int registers, const 
 
     if (shaderModel < 4)
     {
-        vertexHLSL += "    float4 _dx_Position : " + dxPositionSemantic + ";\n";
+        vertexHLSL += "    float4 dx_Position : " + dxPositionSemantic + ";\n";
         vertexHLSL += "    float4 gl_Position : " + glPositionSemantic + Str(glPositionSemanticIndex) + ";\n";
         linkedVaryings->push_back(LinkedVarying("gl_Position", GL_FLOAT_VEC4, 1, glPositionSemantic, glPositionSemanticIndex, 1));
 
@@ -514,7 +574,7 @@ bool DynamicHLSL::generateShaderLinkHLSL(InfoLog &infoLog, int registers, const 
 
     if (shaderModel >= 4)
     {
-        vertexHLSL += "    float4 _dx_Position : " + dxPositionSemantic + ";\n";
+        vertexHLSL += "    float4 dx_Position : " + dxPositionSemantic + ";\n";
         vertexHLSL += "    float4 gl_Position : " + glPositionSemantic + Str(glPositionSemanticIndex) + ";\n";
         linkedVaryings->push_back(LinkedVarying("gl_Position", GL_FLOAT_VEC4, 1, glPositionSemantic, glPositionSemanticIndex, 1));
     }
@@ -532,10 +592,10 @@ bool DynamicHLSL::generateShaderLinkHLSL(InfoLog &infoLog, int registers, const 
                       "\n"
                       "    VS_OUTPUT output;\n"
                       "    output.gl_Position = gl_Position;\n"
-                      "    output._dx_Position.x = gl_Position.x;\n"
-                      "    output._dx_Position.y = -gl_Position.y;\n"
-                      "    output._dx_Position.z = (gl_Position.z + gl_Position.w) * 0.5;\n"
-                      "    output._dx_Position.w = gl_Position.w;\n";
+                      "    output.dx_Position.x = gl_Position.x;\n"
+                      "    output.dx_Position.y = -gl_Position.y;\n"
+                      "    output.dx_Position.z = (gl_Position.z + gl_Position.w) * 0.5;\n"
+                      "    output.dx_Position.w = gl_Position.w;\n";
     }
     else
     {
@@ -544,10 +604,10 @@ bool DynamicHLSL::generateShaderLinkHLSL(InfoLog &infoLog, int registers, const 
                       "\n"
                       "    VS_OUTPUT output;\n"
                       "    output.gl_Position = gl_Position;\n"
-                      "    output._dx_Position.x = gl_Position.x * dx_ViewAdjust.z + dx_ViewAdjust.x * gl_Position.w;\n"
-                      "    output._dx_Position.y = -(gl_Position.y * dx_ViewAdjust.w + dx_ViewAdjust.y * gl_Position.w);\n"
-                      "    output._dx_Position.z = (gl_Position.z + gl_Position.w) * 0.5;\n"
-                      "    output._dx_Position.w = gl_Position.w;\n";
+                      "    output.dx_Position.x = gl_Position.x * dx_ViewAdjust.z + dx_ViewAdjust.x * gl_Position.w;\n"
+                      "    output.dx_Position.y = -(gl_Position.y * dx_ViewAdjust.w + dx_ViewAdjust.y * gl_Position.w);\n"
+                      "    output.dx_Position.z = (gl_Position.z + gl_Position.w) * 0.5;\n"
+                      "    output.dx_Position.w = gl_Position.w;\n";
     }
 
     if (vertexShader->mUsesPointSize && shaderModel >= 3)
@@ -660,22 +720,22 @@ bool DynamicHLSL::generateShaderLinkHLSL(InfoLog &infoLog, int registers, const 
         }
     }
 
-    pixelHLSL += "};\n"
-                 "\n"
-                 "struct PS_OUTPUT\n"
-                 "{\n";
+    pixelHLSL += "};\n";
 
     if (shaderVersion < 300)
     {
         for (unsigned int renderTargetIndex = 0; renderTargetIndex < numRenderTargets; renderTargetIndex++)
         {
-            pixelHLSL += "    float4 gl_Color" + Str(renderTargetIndex) + " : " + targetSemantic + Str(renderTargetIndex) + ";\n";
+            PixelShaderOuputVariable outputKeyVariable;
+            outputKeyVariable.type = GL_FLOAT_VEC4;
+            outputKeyVariable.name = "gl_Color" + Str(renderTargetIndex);
+            outputKeyVariable.source = broadcast ? "gl_Color[0]" : "gl_Color[" + Str(renderTargetIndex) + "]";
+            outputKeyVariable.outputIndex = renderTargetIndex;
+
+            outPixelShaderKey->push_back(outputKeyVariable);
         }
 
-        if (fragmentShader->mUsesFragDepth)
-        {
-            pixelHLSL += "    float gl_Depth : " + depthSemantic + ";\n";
-        }
+        *outUsesFragDepth = fragmentShader->mUsesFragDepth;
     }
     else
     {
@@ -686,16 +746,22 @@ bool DynamicHLSL::generateShaderLinkHLSL(InfoLog &infoLog, int registers, const 
         {
             const VariableLocation &outputLocation = locationIt->second;
             const ShaderVariable &outputVariable = shaderOutputVars[outputLocation.index];
+            const std::string &variableName = "out_" + outputLocation.name;
             const std::string &elementString = (outputLocation.element == GL_INVALID_INDEX ? "" : Str(outputLocation.element));
 
-            pixelHLSL += "    " + gl_d3d::HLSLTypeString(outputVariable.type) +
-                         " out_" + outputLocation.name + elementString +
-                         " : " + targetSemantic + Str(locationIt->first) + ";\n";
+            PixelShaderOuputVariable outputKeyVariable;
+            outputKeyVariable.type = outputVariable.type;
+            outputKeyVariable.name = variableName + elementString;
+            outputKeyVariable.source = variableName + ArrayString(outputLocation.element);
+            outputKeyVariable.outputIndex = locationIt->first;
+
+            outPixelShaderKey->push_back(outputKeyVariable);
         }
+
+        *outUsesFragDepth = false;
     }
 
-    pixelHLSL += "};\n"
-                 "\n";
+    pixelHLSL += PIXEL_OUTPUT_STUB_STRING + "\n";
 
     if (fragmentShader->mUsesFrontFacing)
     {
@@ -807,37 +873,7 @@ bool DynamicHLSL::generateShaderLinkHLSL(InfoLog &infoLog, int registers, const 
     pixelHLSL += "\n"
                  "    gl_main();\n"
                  "\n"
-                 "    PS_OUTPUT output;\n";
-
-    if (shaderVersion < 300)
-    {
-        for (unsigned int renderTargetIndex = 0; renderTargetIndex < numRenderTargets; renderTargetIndex++)
-        {
-            unsigned int sourceColorIndex = broadcast ? 0 : renderTargetIndex;
-
-            pixelHLSL += "    output.gl_Color" + Str(renderTargetIndex) + " = gl_Color[" + Str(sourceColorIndex) + "];\n";
-        }
-
-        if (fragmentShader->mUsesFragDepth)
-        {
-            pixelHLSL += "    output.gl_Depth = gl_Depth;\n";
-        }
-    }
-    else
-    {
-        for (auto locationIt = programOutputVars->begin(); locationIt != programOutputVars->end(); locationIt++)
-        {
-            const VariableLocation &outputLocation = locationIt->second;
-            const std::string &variableName = "out_" + outputLocation.name;
-            const std::string &outVariableName = variableName + (outputLocation.element == GL_INVALID_INDEX ? "" : Str(outputLocation.element));
-            const std::string &staticVariableName = variableName + ArrayString(outputLocation.element);
-
-            pixelHLSL += "    output." + outVariableName + " = " + staticVariableName + ";\n";
-        }
-    }
-
-    pixelHLSL += "\n"
-                 "    return output;\n"
+                 "    return generateOutput();\n"
                  "}\n";
 
     return true;
@@ -1001,7 +1037,7 @@ std::string DynamicHLSL::generatePointSpriteHLSL(int registers, FragmentShader *
 // This method needs to match OutputHLSL::decorate
 std::string DynamicHLSL::decorateVariable(const std::string &name)
 {
-    if (name.compare(0, 3, "gl_") != 0 && name.compare(0, 3, "dx_") != 0)
+    if (name.compare(0, 3, "gl_"))
     {
         return "_" + name;
     }
