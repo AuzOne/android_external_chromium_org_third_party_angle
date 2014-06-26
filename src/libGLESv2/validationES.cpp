@@ -19,6 +19,7 @@
 #include "libGLESv2/Query.h"
 #include "libGLESv2/ProgramBinary.h"
 #include "libGLESv2/TransformFeedback.h"
+#include "libGLESv2/VertexArray.h"
 
 #include "common/mathutil.h"
 #include "common/utilities.h"
@@ -167,14 +168,16 @@ bool ValidMipLevel(const Context *context, GLenum target, GLint level)
     return level < maxLevel;
 }
 
-bool ValidImageSize(const gl::Context *context, GLenum target, GLint level, GLsizei width, GLsizei height, GLsizei depth)
+bool ValidImageSize(const gl::Context *context, GLenum target, GLint level,
+                    GLsizei width, GLsizei height, GLsizei depth)
 {
     if (level < 0 || width < 0 || height < 0 || depth < 0)
     {
         return false;
     }
 
-    if (!context->getCaps().extensions.textureNPOT && (level != 0 || !gl::isPow2(width) || !gl::isPow2(height) || !gl::isPow2(depth)))
+    if (!context->getCaps().extensions.textureNPOT &&
+        (level != 0 && (!gl::isPow2(width) || !gl::isPow2(height) || !gl::isPow2(depth))))
     {
         return false;
     }
@@ -1289,8 +1292,22 @@ bool ValidateCopyTexImageParametersBase(gl::Context* context, GLenum target, GLi
     return true;
 }
 
-static bool ValidateDrawBase(const gl::Context *context, GLsizei count)
+static bool ValidateDrawBase(const gl::Context *context, GLenum mode, GLsizei count)
 {
+    switch (mode)
+    {
+      case GL_POINTS:
+      case GL_LINES:
+      case GL_LINE_LOOP:
+      case GL_LINE_STRIP:
+      case GL_TRIANGLES:
+      case GL_TRIANGLE_STRIP:
+      case GL_TRIANGLE_FAN:
+        break;
+      default:
+        return gl::error(GL_INVALID_ENUM, false);
+    }
+
     if (count < 0)
     {
         return gl::error(GL_INVALID_VALUE, false);
@@ -1300,6 +1317,35 @@ static bool ValidateDrawBase(const gl::Context *context, GLsizei count)
     if (context->hasMappedBuffer(GL_ARRAY_BUFFER))
     {
         return gl::error(GL_INVALID_OPERATION, false);
+    }
+
+    const gl::DepthStencilState &depthStencilState = context->getDepthStencilState();
+    if (depthStencilState.stencilWritemask != depthStencilState.stencilBackWritemask ||
+        context->getStencilRef() != context->getStencilBackRef() ||
+        depthStencilState.stencilMask != depthStencilState.stencilBackMask)
+    {
+        // Note: these separate values are not supported in WebGL, due to D3D's limitations.
+        // See Section 6.10 of the WebGL 1.0 spec
+        ERR("This ANGLE implementation does not support separate front/back stencil "
+            "writemasks, reference values, or stencil mask values.");
+        return gl::error(GL_INVALID_OPERATION, false);
+    }
+
+    if (!context->getCurrentProgram())
+    {
+        return gl::error(GL_INVALID_OPERATION, false);
+    }
+
+    gl::ProgramBinary *programBinary = context->getCurrentProgramBinary();
+    if (!programBinary->validateSamplers(NULL))
+    {
+        return gl::error(GL_INVALID_OPERATION, false);
+    }
+
+    const gl::Framebuffer *fbo = context->getDrawFramebuffer();
+    if (!fbo || fbo->completeness() != GL_FRAMEBUFFER_COMPLETE)
+    {
+        return gl::error(GL_INVALID_FRAMEBUFFER_OPERATION, false);
     }
 
     // No-op if zero count
@@ -1323,7 +1369,7 @@ bool ValidateDrawArrays(const gl::Context *context, GLenum mode, GLint first, GL
         return gl::error(GL_INVALID_OPERATION, false);
     }
 
-    if (!ValidateDrawBase(context, count))
+    if (!ValidateDrawBase(context, mode, count))
     {
         return false;
     }
@@ -1378,7 +1424,13 @@ bool ValidateDrawElements(const gl::Context *context, GLenum mode, GLsizei count
         return gl::error(GL_INVALID_OPERATION, false);
     }
 
-    if (!ValidateDrawBase(context, count))
+    gl::VertexArray *vao = context->getCurrentVertexArray();
+    if (!indices && !vao->getElementArrayBuffer())
+    {
+        return gl::error(GL_INVALID_OPERATION, false);
+    }
+
+    if (!ValidateDrawBase(context, mode, count))
     {
         return false;
     }

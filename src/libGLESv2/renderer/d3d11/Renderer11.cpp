@@ -654,14 +654,9 @@ void Renderer11::setDepthStencilState(const gl::DepthStencilState &depthStencilS
         memcmp(&depthStencilState, &mCurDepthStencilState, sizeof(gl::DepthStencilState)) != 0 ||
         stencilRef != mCurStencilRef || stencilBackRef != mCurStencilBackRef)
     {
-        if (depthStencilState.stencilWritemask != depthStencilState.stencilBackWritemask ||
-            stencilRef != stencilBackRef ||
-            depthStencilState.stencilMask != depthStencilState.stencilBackMask)
-        {
-            ERR("Separate front/back stencil writemasks, reference values, or stencil mask values are "
-                "invalid under WebGL.");
-            return gl::error(GL_INVALID_OPERATION);
-        }
+        ASSERT(depthStencilState.stencilWritemask == depthStencilState.stencilBackWritemask);
+        ASSERT(stencilRef == stencilBackRef);
+        ASSERT(depthStencilState.stencilMask == depthStencilState.stencilBackMask);
 
         ID3D11DepthStencilState *dxDepthStencilState = mStateCache.getDepthStencilState(depthStencilState);
         if (!dxDepthStencilState)
@@ -798,7 +793,8 @@ bool Renderer11::applyPrimitiveType(GLenum mode, GLsizei count)
           // emulate fans via rewriting index buffer
       case GL_TRIANGLE_FAN:   primitiveTopology = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;  minCount = 3; break;
       default:
-        return gl::error(GL_INVALID_ENUM, false);
+        UNREACHABLE();
+        return false;
     }
 
     if (primitiveTopology != mCurrentPrimitiveTopology)
@@ -2808,13 +2804,9 @@ FenceImpl *Renderer11::createFence()
 
 bool Renderer11::supportsFastCopyBufferToTexture(GLenum internalFormat) const
 {
-    int clientVersion = getCurrentClientVersion();
+    ASSERT(getCaps().extensions.pixelBufferObject);
 
-    // We only support buffer to texture copies in ES3
-    if (clientVersion <= 2)
-    {
-        return false;
-    }
+    GLuint clientVersion = getCurrentClientVersion();
 
     // sRGB formats do not work with D3D11 buffer SRVs
     if (gl::GetColorEncoding(internalFormat, clientVersion) == GL_SRGB)

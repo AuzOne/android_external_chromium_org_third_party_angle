@@ -893,13 +893,10 @@ void Renderer9::setDepthStencilState(const gl::DepthStencilState &depthStencilSt
             const D3DRENDERSTATETYPE D3DRS_CCW_STENCILREF = D3DRS_STENCILREF;
             const D3DRENDERSTATETYPE D3DRS_CCW_STENCILMASK = D3DRS_STENCILMASK;
             const D3DRENDERSTATETYPE D3DRS_CCW_STENCILWRITEMASK = D3DRS_STENCILWRITEMASK;
-            if (depthStencilState.stencilWritemask != depthStencilState.stencilBackWritemask ||
-                stencilRef != stencilBackRef ||
-                depthStencilState.stencilMask != depthStencilState.stencilBackMask)
-            {
-                ERR("Separate front/back stencil writemasks, reference values, or stencil mask values are invalid under WebGL.");
-                return gl::error(GL_INVALID_OPERATION);
-            }
+
+            ASSERT(depthStencilState.stencilWritemask == depthStencilState.stencilBackWritemask);
+            ASSERT(stencilRef == stencilBackRef);
+            ASSERT(depthStencilState.stencilMask == depthStencilState.stencilBackMask);
 
             // get the maximum size of the stencil ref
             unsigned int maxStencil = (1 << mCurStencilSize) - 1;
@@ -1097,7 +1094,8 @@ bool Renderer9::applyPrimitiveType(GLenum mode, GLsizei count)
         mPrimitiveCount = count - 2;
         break;
       default:
-        return gl::error(GL_INVALID_ENUM, false);
+        UNREACHABLE();
+        return false;
     }
 
     return mPrimitiveCount > 0;
