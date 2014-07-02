@@ -10,10 +10,7 @@
 #ifndef LIBGLESV2_CONTEXT_H_
 #define LIBGLESV2_CONTEXT_H_
 
-#include <GLES3/gl3.h>
-#include <GLES3/gl3ext.h>
-#include <GLES2/gl2.h>
-#include <GLES2/gl2ext.h>
+#include "angle_gl.h"
 #include <EGL/egl.h>
 
 #include <string>
@@ -309,7 +306,6 @@ class Context
     void useProgram(GLuint program);
     void linkProgram(GLuint program);
     void setProgramBinary(GLuint program, const void *binary, GLint length);
-    GLuint getCurrentProgram() const;
     void bindTransformFeedback(GLuint transformFeedback);
 
     void beginQuery(GLenum target, GLuint query);
@@ -345,7 +341,7 @@ class Context
     Buffer *getTargetBuffer(GLenum target) const;
     Buffer *getArrayBuffer();
     Buffer *getElementArrayBuffer() const;
-    ProgramBinary *getCurrentProgramBinary() const;
+    ProgramBinary *getCurrentProgramBinary();
 
     Texture *getTargetTexture(GLenum target) const;
     Texture2D *getTexture2D() const;

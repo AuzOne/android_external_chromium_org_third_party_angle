@@ -12,12 +12,10 @@
 #ifndef LIBGLESV2_RENDERBUFFER_H_
 #define LIBGLESV2_RENDERBUFFER_H_
 
-#include <GLES3/gl3.h>
-#include <GLES2/gl2.h>
+#include "angle_gl.h"
 
 #include "common/angleutils.h"
 #include "common/RefCountObject.h"
-#include "libGLESv2/FramebufferAttachment.h"
 
 namespace rx
 {
@@ -30,6 +28,7 @@ class TextureStorage;
 namespace gl
 {
 class RenderbufferStorage;
+class FramebufferAttachment;
 
 // A GL renderbuffer object is usually used as a depth or stencil buffer attachment
 // for a framebuffer object. The renderbuffer itself is a distinct GL object, see
@@ -39,7 +38,7 @@ class RenderbufferStorage;
 class Renderbuffer : public RefCountObject
 {
   public:
-    Renderbuffer(rx::Renderer *renderer, GLuint id, RenderbufferStorage *newStorage);
+    Renderbuffer(GLuint id, RenderbufferStorage *newStorage);
 
     void setStorage(RenderbufferStorage *newStorage);
     RenderbufferStorage *getStorage();
@@ -57,7 +56,6 @@ class Renderbuffer : public RefCountObject
     GLuint getStencilSize() const;
 
   private:
-    rx::Renderer *mRenderer;
     RenderbufferStorage *mStorage;
 };
 

@@ -13,13 +13,11 @@
 
 #include <vector>
 
-#include <GLES3/gl3.h>
-#include <GLES2/gl2.h>
+#include "angle_gl.h"
 
 #include "common/debug.h"
 #include "common/RefCountObject.h"
 #include "libGLESv2/angletypes.h"
-#include "libGLESv2/RenderbufferProxySet.h"
 
 namespace egl
 {
@@ -64,9 +62,6 @@ class Texture : public RefCountObject
     Texture(rx::Renderer *renderer, GLuint id, GLenum target);
 
     virtual ~Texture();
-
-    void addProxyRef(const FramebufferAttachment *proxy);
-    void releaseProxy(const FramebufferAttachment *proxy);
 
     GLenum getTarget() const;
 
@@ -157,13 +152,6 @@ class Texture : public RefCountObject
 
     GLenum mTarget;
 
-    // A specific internal reference count is kept for colorbuffer proxy references,
-    // because, as the renderbuffer acting as proxy will maintain a binding pointer
-    // back to this texture, there would be a circular reference if we used a binding
-    // pointer here. This reference count will cause the pointer to be set to NULL if
-    // the count drops to zero, but will not cause deletion of the FramebufferAttachment.
-    RenderbufferProxySet mRenderbufferProxies;
-
   private:
     DISALLOW_COPY_AND_ASSIGN(Texture);
 
@@ -199,7 +187,6 @@ class Texture2D : public Texture
 
     virtual void generateMipmaps();
 
-    FramebufferAttachment *getAttachment(GLint level);
     unsigned int getRenderTargetSerial(GLint level);
 
   protected:
@@ -267,7 +254,6 @@ class TextureCubeMap : public Texture
 
     virtual void generateMipmaps();
 
-    FramebufferAttachment *getAttachment(GLenum target, GLint level);
     unsigned int getRenderTargetSerial(GLenum target, GLint level);
 
     static int targetToIndex(GLenum target);
@@ -330,7 +316,6 @@ class Texture3D : public Texture
     virtual bool isSamplerComplete(const SamplerState &samplerState) const;
     virtual bool isMipmapComplete() const;
 
-    FramebufferAttachment *getAttachment(GLint level, GLint layer);
     unsigned int getRenderTargetSerial(GLint level, GLint layer);
 
   protected:
@@ -391,7 +376,6 @@ class Texture2DArray : public Texture
     virtual bool isSamplerComplete(const SamplerState &samplerState) const;
     virtual bool isMipmapComplete() const;
 
-    FramebufferAttachment *getAttachment(GLint level, GLint layer);
     unsigned int getRenderTargetSerial(GLint level, GLint layer);
 
   protected:

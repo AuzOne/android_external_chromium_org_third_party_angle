@@ -17,14 +17,14 @@
 #include "libGLESv2/renderer/TextureStorage.h"
 #include "common/utilities.h"
 #include "libGLESv2/formatutils.h"
+#include "libGLESv2/FramebufferAttachment.h"
 
 namespace gl
 {
 unsigned int RenderbufferStorage::mCurrentSerial = 1;
 
-Renderbuffer::Renderbuffer(rx::Renderer *renderer, GLuint id, RenderbufferStorage *newStorage)
+Renderbuffer::Renderbuffer(GLuint id, RenderbufferStorage *newStorage)
   : RefCountObject(id),
-    mRenderer(renderer),
     mStorage(newStorage)
 {
     ASSERT(mStorage);
@@ -76,32 +76,32 @@ GLsizei Renderbuffer::getSamples() const
 
 GLuint Renderbuffer::getRedSize() const
 {
-    return gl::GetRedBits(getActualFormat(), mRenderer->getCurrentClientVersion());
+    return gl::GetRedBits(getActualFormat());
 }
 
 GLuint Renderbuffer::getGreenSize() const
 {
-    return gl::GetGreenBits(getActualFormat(), mRenderer->getCurrentClientVersion());
+    return gl::GetGreenBits(getActualFormat());
 }
 
 GLuint Renderbuffer::getBlueSize() const
 {
-    return gl::GetBlueBits(getActualFormat(), mRenderer->getCurrentClientVersion());
+    return gl::GetBlueBits(getActualFormat());
 }
 
 GLuint Renderbuffer::getAlphaSize() const
 {
-    return gl::GetAlphaBits(getActualFormat(), mRenderer->getCurrentClientVersion());
+    return gl::GetAlphaBits(getActualFormat());
 }
 
 GLuint Renderbuffer::getDepthSize() const
 {
-    return gl::GetDepthBits(getActualFormat(), mRenderer->getCurrentClientVersion());
+    return gl::GetDepthBits(getActualFormat());
 }
 
 GLuint Renderbuffer::getStencilSize() const
 {
-    return gl::GetStencilBits(getActualFormat(), mRenderer->getCurrentClientVersion());
+    return gl::GetStencilBits(getActualFormat());
 }
 
 RenderbufferStorage::RenderbufferStorage() : mSerial(issueSerials(1))

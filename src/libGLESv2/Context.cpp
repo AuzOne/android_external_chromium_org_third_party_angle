@@ -16,13 +16,14 @@
 #include "libGLESv2/Buffer.h"
 #include "libGLESv2/Fence.h"
 #include "libGLESv2/Framebuffer.h"
+#include "libGLESv2/FramebufferAttachment.h"
 #include "libGLESv2/Renderbuffer.h"
 #include "libGLESv2/Program.h"
 #include "libGLESv2/ProgramBinary.h"
 #include "libGLESv2/Query.h"
 #include "libGLESv2/Texture.h"
 #include "libGLESv2/ResourceManager.h"
-#include "libGLESv2/renderer/IndexDataManager.h"
+#include "libGLESv2/renderer/d3d/IndexDataManager.h"
 #include "libGLESv2/renderer/RenderTarget.h"
 #include "libGLESv2/renderer/Renderer.h"
 #include "libGLESv2/VertexArray.h"
@@ -1353,11 +1354,6 @@ void Context::setProgramBinary(GLuint program, const void *binary, GLint length)
 
 }
 
-GLuint Context::getCurrentProgram() const
-{
-    return mState.currentProgram;
-}
-
 void Context::bindTransformFeedback(GLuint transformFeedback)
 {
     TransformFeedback *transformFeedbackObject = getTransformFeedback(transformFeedback);
@@ -1501,7 +1497,7 @@ Buffer *Context::getElementArrayBuffer() const
     return getCurrentVertexArray()->getElementArrayBuffer();
 }
 
-ProgramBinary *Context::getCurrentProgramBinary() const
+ProgramBinary *Context::getCurrentProgramBinary()
 {
     return mCurrentProgramBinary.get();
 }
@@ -1874,10 +1870,10 @@ void Context::getIntegerv(GLenum pname, GLint *params)
             {
                 switch (pname)
                 {
-                  case GL_RED_BITS:   *params = colorbuffer->getRedSize(mClientVersion);      break;
-                  case GL_GREEN_BITS: *params = colorbuffer->getGreenSize(mClientVersion);    break;
-                  case GL_BLUE_BITS:  *params = colorbuffer->getBlueSize(mClientVersion);     break;
-                  case GL_ALPHA_BITS: *params = colorbuffer->getAlphaSize(mClientVersion);    break;
+                  case GL_RED_BITS:   *params = colorbuffer->getRedSize();      break;
+                  case GL_GREEN_BITS: *params = colorbuffer->getGreenSize();    break;
+                  case GL_BLUE_BITS:  *params = colorbuffer->getBlueSize();     break;
+                  case GL_ALPHA_BITS: *params = colorbuffer->getAlphaSize();    break;
                 }
             }
             else
@@ -1893,7 +1889,7 @@ void Context::getIntegerv(GLenum pname, GLint *params)
 
             if (depthbuffer)
             {
-                *params = depthbuffer->getDepthSize(mClientVersion);
+                *params = depthbuffer->getDepthSize();
             }
             else
             {
@@ -1908,7 +1904,7 @@ void Context::getIntegerv(GLenum pname, GLint *params)
 
             if (stencilbuffer)
             {
-                *params = stencilbuffer->getStencilSize(mClientVersion);
+                *params = stencilbuffer->getStencilSize();
             }
             else
             {
@@ -2633,7 +2629,7 @@ void Context::clear(GLbitfield mask)
                 return;
             }
 
-            if (gl::GetStencilBits(depthStencil->getActualFormat(), mClientVersion) > 0)
+            if (gl::GetStencilBits(depthStencil->getActualFormat()) > 0)
             {
                 clearParams.clearStencil = true;
             }
@@ -2842,16 +2838,19 @@ void Context::readPixels(GLint x, GLint y, GLsizei width, GLsizei height,
 {
     gl::Framebuffer *framebuffer = getReadFramebuffer();
 
-    bool isSized = IsSizedInternalFormat(format, mClientVersion);
-    GLenum sizedInternalFormat = (isSized ? format : GetSizedInternalFormat(format, type, mClientVersion));
-    GLuint outputPitch = GetRowPitch(sizedInternalFormat, type, mClientVersion, width, mState.pack.alignment);
+    bool isSized = IsSizedInternalFormat(format);
+    GLenum sizedInternalFormat = (isSized ? format : GetSizedInternalFormat(format, type));
+    GLuint outputPitch = GetRowPitch(sizedInternalFormat, type, width, mState.pack.alignment);
 
     mRenderer->readPixels(framebuffer, x, y, width, height, format, type, outputPitch, mState.pack, pixels);
 }
 
 void Context::drawArrays(GLenum mode, GLint first, GLsizei count, GLsizei instances)
 {
-    ASSERT(mState.currentProgram);
+    if (!mState.currentProgram)
+    {
+        return gl::error(GL_INVALID_OPERATION);
+    }
 
     ProgramBinary *programBinary = getCurrentProgramBinary();
     programBinary->applyUniforms();
@@ -2902,6 +2901,11 @@ void Context::drawArrays(GLenum mode, GLint first, GLsizei count, GLsizei instan
         return;
     }
 
+    if (!programBinary->validateSamplers(NULL))
+    {
+        return gl::error(GL_INVALID_OPERATION);
+    }
+
     if (!skipDraw(mode))
     {
         mRenderer->drawArrays(mode, count, instances, transformFeedbackActive);
@@ -2915,7 +2919,16 @@ void Context::drawArrays(GLenum mode, GLint first, GLsizei count, GLsizei instan
 
 void Context::drawElements(GLenum mode, GLsizei count, GLenum type, const GLvoid *indices, GLsizei instances)
 {
-    ASSERT(mState.currentProgram);
+    if (!mState.currentProgram)
+    {
+        return gl::error(GL_INVALID_OPERATION);
+    }
+
+    VertexArray *vao = getCurrentVertexArray();
+    if (!indices && !vao->getElementArrayBuffer())
+    {
+        return gl::error(GL_INVALID_OPERATION);
+    }
 
     ProgramBinary *programBinary = getCurrentProgramBinary();
     programBinary->applyUniforms();
@@ -2945,7 +2958,6 @@ void Context::drawElements(GLenum mode, GLsizei count, GLenum type, const GLvoid
 
     applyState(mode);
 
-    VertexArray *vao = getCurrentVertexArray();
     rx::TranslatedIndexData indexInfo;
     GLenum err = mRenderer->applyIndexBuffer(indices, vao->getElementArrayBuffer(), count, mode, type, &indexInfo);
     if (err != GL_NO_ERROR)
@@ -2976,6 +2988,11 @@ void Context::drawElements(GLenum mode, GLsizei count, GLenum type, const GLvoid
     if (!applyUniformBuffers())
     {
         return;
+    }
+
+    if (!programBinary->validateSamplers(NULL))
+    {
+        return gl::error(GL_INVALID_OPERATION);
     }
 
     if (!skipDraw(mode))
@@ -3207,8 +3224,8 @@ void Context::getCurrentReadFormatType(GLenum *internalFormat, GLenum *format, G
     ASSERT(attachment);
 
     *internalFormat = attachment->getActualFormat();
-    *format = gl::GetFormat(attachment->getActualFormat(), mClientVersion);
-    *type = gl::GetType(attachment->getActualFormat(), mClientVersion);
+    *format = gl::GetFormat(attachment->getActualFormat());
+    *type = gl::GetType(attachment->getActualFormat());
 }
 
 void Context::detachBuffer(GLuint buffer)
@@ -3728,7 +3745,7 @@ bool Context::hasMappedBuffer(GLenum target) const
         {
             const gl::VertexAttribute &vertexAttrib = getVertexAttribState(attribIndex);
             gl::Buffer *boundBuffer = vertexAttrib.buffer.get();
-            if (vertexAttrib.enabled && boundBuffer && boundBuffer->mapped())
+            if (vertexAttrib.enabled && boundBuffer && boundBuffer->isMapped())
             {
                 return true;
             }
@@ -3737,7 +3754,7 @@ bool Context::hasMappedBuffer(GLenum target) const
     else if (target == GL_ELEMENT_ARRAY_BUFFER)
     {
         Buffer *elementBuffer = getElementArrayBuffer();
-        return (elementBuffer && elementBuffer->mapped());
+        return (elementBuffer && elementBuffer->isMapped());
     }
     else if (target == GL_TRANSFORM_FEEDBACK_BUFFER)
     {
