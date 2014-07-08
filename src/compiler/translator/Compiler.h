@@ -52,9 +52,10 @@ protected:
 // The base class for the machine dependent compiler to derive from
 // for managing object code from the compile.
 //
-class TCompiler : public TShHandleBase {
-public:
-    TCompiler(ShShaderType type, ShShaderSpec spec, ShShaderOutput output);
+class TCompiler : public TShHandleBase
+{
+  public:
+    TCompiler(sh::GLenum type, ShShaderSpec spec, ShShaderOutput output);
     virtual ~TCompiler();
     virtual TCompiler* getAsCompiler() { return this; }
 
@@ -66,9 +67,12 @@ public:
     // Get results of the last compilation.
     int getShaderVersion() const { return shaderVersion; }
     TInfoSink& getInfoSink() { return infoSink; }
-    const TVariableInfoList& getAttribs() const { return attribs; }
-    const TVariableInfoList& getUniforms() const { return uniforms; }
-    const TVariableInfoList& getVaryings() const { return varyings; }
+
+    const std::vector<sh::Attribute> &getAttributes() const { return attributes; }
+    const std::vector<sh::Attribute> &getOutputVariables() const { return outputVariables; }
+    const std::vector<sh::Uniform> &getUniforms() const { return uniforms; }
+    const std::vector<sh::Varying> &getVaryings() const { return varyings; }
+    const std::vector<sh::InterfaceBlock> &getInterfaceBlocks() const { return interfaceBlocks; }
 
     ShHashFunction64 getHashFunction() const { return hashFunction; }
     NameMap& getNameMap() { return nameMap; }
@@ -77,8 +81,8 @@ public:
     ShShaderOutput getOutputType() const { return outputType; }
     std::string getBuiltInResourcesString() const { return builtInResourcesString; }
 
-protected:
-    ShShaderType getShaderType() const { return shaderType; }
+  protected:
+    sh::GLenum getShaderType() const { return shaderType; }
     // Initialize symbol-table with built-in symbols.
     bool InitBuiltInSymbolTable(const ShBuiltInResources& resources);
     // Compute the string representation of the built-in resources
@@ -129,8 +133,14 @@ protected:
     ShArrayIndexClampingStrategy getArrayIndexClampingStrategy() const;
     const BuiltInFunctionEmulator& getBuiltInFunctionEmulator() const;
 
-private:
-    ShShaderType shaderType;
+    std::vector<sh::Attribute> attributes;
+    std::vector<sh::Attribute> outputVariables;
+    std::vector<sh::Uniform> uniforms;
+    std::vector<sh::Varying> varyings;
+    std::vector<sh::InterfaceBlock> interfaceBlocks;
+
+  private:
+    sh::GLenum shaderType;
     ShShaderSpec shaderSpec;
     ShShaderOutput outputType;
 
@@ -155,9 +165,6 @@ private:
     // Results of compilation.
     int shaderVersion;
     TInfoSink infoSink;  // Output sink.
-    TVariableInfoList attribs;  // Active attributes in the compiled shader.
-    TVariableInfoList uniforms;  // Active uniforms in the compiled shader.
-    TVariableInfoList varyings;  // Varyings in the compiled shader.
 
     // name hashing.
     ShHashFunction64 hashFunction;
@@ -174,7 +181,7 @@ private:
 // above machine independent information.
 //
 TCompiler* ConstructCompiler(
-    ShShaderType type, ShShaderSpec spec, ShShaderOutput output);
+    sh::GLenum type, ShShaderSpec spec, ShShaderOutput output);
 void DeleteCompiler(TCompiler*);
 
 #endif // _SHHANDLE_INCLUDED_
