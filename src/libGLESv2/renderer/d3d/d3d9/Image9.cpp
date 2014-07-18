@@ -64,8 +64,8 @@ void Image9::generateMip(IDirect3DSurface9 *destSurface, IDirect3DSurface9 *sour
     result = destSurface->LockRect(&destLocked, NULL, 0);
     ASSERT(SUCCEEDED(result));
 
-    const unsigned char *sourceData = reinterpret_cast<const unsigned char*>(sourceLocked.pBits);
-    unsigned char *destData = reinterpret_cast<unsigned char*>(destLocked.pBits);
+    const uint8_t *sourceData = reinterpret_cast<const uint8_t*>(sourceLocked.pBits);
+    uint8_t *destData = reinterpret_cast<uint8_t*>(destLocked.pBits);
 
     if (sourceData && destData)
     {
@@ -208,7 +208,7 @@ void Image9::createSurface()
             result = newSurface->LockRect(&lockedRect, &entireRect, 0);
             ASSERT(SUCCEEDED(result));
 
-            initializeFunc(mWidth, mHeight, 1, lockedRect.pBits, lockedRect.Pitch, 0);
+            initializeFunc(mWidth, mHeight, 1, reinterpret_cast<uint8_t*>(lockedRect.pBits), lockedRect.Pitch, 0);
 
             result = newSurface->UnlockRect();
             ASSERT(SUCCEEDED(result));
@@ -405,7 +405,9 @@ void Image9::loadData(GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width
         return;
     }
 
-    loadFunction(width, height, depth, input, inputRowPitch, 0, locked.pBits, locked.Pitch, 0);
+    loadFunction(width, height, depth,
+                 reinterpret_cast<const uint8_t*>(input), inputRowPitch, 0,
+                 reinterpret_cast<uint8_t*>(locked.pBits), locked.Pitch, 0);
 
     unlock();
 }
@@ -438,8 +440,9 @@ void Image9::loadCompressedData(GLint xoffset, GLint yoffset, GLint zoffset, GLs
         return;
     }
 
-    loadFunction(width, height, depth, input, inputRowPitch, inputDepthPitch,
-                 locked.pBits, locked.Pitch, 0);
+    loadFunction(width, height, depth,
+                 reinterpret_cast<const uint8_t*>(input), inputRowPitch, inputDepthPitch,
+                 reinterpret_cast<uint8_t*>(locked.pBits), locked.Pitch, 0);
 
     unlock();
 }

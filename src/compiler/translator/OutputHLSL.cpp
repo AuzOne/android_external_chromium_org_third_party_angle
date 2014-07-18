@@ -237,6 +237,11 @@ const std::vector<sh::Varying> &OutputHLSL::getVaryings() const
     return mActiveVaryings;
 }
 
+const std::map<std::string, unsigned int> &OutputHLSL::getInterfaceBlockRegisterMap() const
+{
+    return mUniformHLSL->getInterfaceBlockRegisterMap();
+}
+
 int OutputHLSL::vectorSize(const TType &type) const
 {
     int elementSize = type.isMatrix() ? type.getCols() : 1;
@@ -2900,31 +2905,29 @@ const ConstantUnion *OutputHLSL::writeConstantUnion(const TType &type, const Con
     return constUnion;
 }
 
-void OutputHLSL::declareVaryingToList(const TType &type, TQualifier baseTypeQualifier, const TString &name, std::vector<Varying> &fieldsOut)
+class DeclareVaryingTraverser : public GetVariableTraverser<Varying>
 {
-    const TStructure *structure = type.getStruct();
+  public:
+    DeclareVaryingTraverser(std::vector<Varying> *output,
+                            InterpolationType interpolation)
+        : GetVariableTraverser(output),
+          mInterpolation(interpolation)
+    {}
 
-    InterpolationType interpolation = GetInterpolationType(baseTypeQualifier);
-    if (!structure)
+  private:
+    void visitVariable(Varying *varying)
     {
-        sh::Varying varying(GLVariableType(type), GLVariablePrecision(type), name.c_str(), (unsigned int)type.getArraySize(), interpolation);
-        fieldsOut.push_back(varying);
+        varying->interpolation = mInterpolation;
     }
-    else
-    {
-        sh::Varying structVarying(GL_STRUCT_ANGLEX, GL_NONE, name.c_str(), (unsigned int)type.getArraySize(), interpolation);
-        const TFieldList &fields = structure->fields();
 
-        structVarying.structName = structure->name().c_str();
+    InterpolationType mInterpolation;
+};
 
-        for (size_t fieldIndex = 0; fieldIndex < fields.size(); fieldIndex++)
-        {
-            const TField &field = *fields[fieldIndex];
-            declareVaryingToList(*field.type(), baseTypeQualifier, field.name(), structVarying.fields);
-        }
-
-        fieldsOut.push_back(structVarying);
-    }
+void OutputHLSL::declareVaryingToList(const TType &type, TQualifier baseTypeQualifier,
+                                      const TString &name, std::vector<Varying> &fieldsOut)
+{
+    DeclareVaryingTraverser traverser(&fieldsOut, GetInterpolationType(baseTypeQualifier));
+    traverser.traverse(type, name);
 }
 
 }

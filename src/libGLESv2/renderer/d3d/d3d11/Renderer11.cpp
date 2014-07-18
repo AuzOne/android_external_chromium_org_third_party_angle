@@ -417,8 +417,10 @@ void Renderer11::generateSwizzle(gl::Texture *texture)
         {
             TextureStorage11 *storage11 = TextureStorage11::makeTextureStorage11(texStorage->getStorageInstance());
 
-            storage11->generateSwizzles(texture->getSwizzleRed(), texture->getSwizzleGreen(), texture->getSwizzleBlue(),
-                                        texture->getSwizzleAlpha());
+            storage11->generateSwizzles(texture->getSamplerState().swizzleRed,
+                                        texture->getSamplerState().swizzleGreen,
+                                        texture->getSamplerState().swizzleBlue,
+                                        texture->getSamplerState().swizzleAlpha);
         }
     }
 }
@@ -490,7 +492,7 @@ void Renderer11::setTexture(gl::SamplerType type, int index, gl::Texture *textur
         {
             TextureStorage11 *storage11 = TextureStorage11::makeTextureStorage11(texStorage->getStorageInstance());
             gl::SamplerState samplerState;
-            texture->getSamplerState(&samplerState);
+            texture->getSamplerStateWithNativeOffset(&samplerState);
             textureSRV = storage11->getSRV(samplerState);
         }
 
@@ -722,17 +724,14 @@ bool Renderer11::setViewport(const gl::Rectangle &viewport, float zNear, float z
         actualZFar = 1.0f;
     }
 
-    // Get D3D viewport bounds, which depends on the feature level
-    const Range& viewportBounds = getViewportBounds();
+    const gl::Caps& caps = getRendererCaps();
 
     // Clamp width and height first to the gl maximum, then clamp further if we extend past the D3D maximum bounds
     D3D11_VIEWPORT dxViewport;
-    dxViewport.TopLeftX = gl::clamp(actualViewport.x, viewportBounds.start, viewportBounds.end);
-    dxViewport.TopLeftY = gl::clamp(actualViewport.y, viewportBounds.start, viewportBounds.end);
-    dxViewport.Width = gl::clamp(actualViewport.width, 0, getMaxViewportDimension());
-    dxViewport.Height = gl::clamp(actualViewport.height, 0, getMaxViewportDimension());
-    dxViewport.Width = std::min((int)dxViewport.Width, viewportBounds.end - static_cast<int>(dxViewport.TopLeftX));
-    dxViewport.Height = std::min((int)dxViewport.Height, viewportBounds.end - static_cast<int>(dxViewport.TopLeftY));
+    dxViewport.TopLeftX = gl::clamp(actualViewport.x, -static_cast<int>(caps.maxViewportWidth), static_cast<int>(caps.maxViewportWidth));
+    dxViewport.TopLeftY = gl::clamp(actualViewport.y, -static_cast<int>(caps.maxViewportHeight), static_cast<int>(caps.maxViewportHeight));
+    dxViewport.Width = gl::clamp(actualViewport.width, 0, static_cast<int>(caps.maxViewportWidth - dxViewport.TopLeftX));
+    dxViewport.Height = gl::clamp(actualViewport.height, 0, static_cast<int>(caps.maxViewportHeight - dxViewport.TopLeftY));
     dxViewport.MinDepth = actualZNear;
     dxViewport.MaxDepth = actualZFar;
 
@@ -817,19 +816,12 @@ bool Renderer11::applyRenderTarget(gl::Framebuffer *framebuffer)
     for (unsigned int colorAttachment = 0; colorAttachment < gl::IMPLEMENTATION_MAX_DRAW_BUFFERS; colorAttachment++)
     {
         const GLenum drawBufferState = framebuffer->getDrawBufferState(colorAttachment);
+        gl::FramebufferAttachment *colorbuffer = framebuffer->getColorbuffer(colorAttachment);
 
-        if (framebuffer->getColorbufferType(colorAttachment) != GL_NONE && drawBufferState != GL_NONE)
+        if (colorbuffer && drawBufferState != GL_NONE)
         {
             // the draw buffer must be either "none", "back" for the default buffer or the same index as this color (in order)
             ASSERT(drawBufferState == GL_BACK || drawBufferState == (GL_COLOR_ATTACHMENT0_EXT + colorAttachment));
-
-            gl::FramebufferAttachment *colorbuffer = framebuffer->getColorbuffer(colorAttachment);
-
-            if (!colorbuffer)
-            {
-                ERR("render target pointer unexpectedly null.");
-                return false;
-            }
 
             // check for zero-sized default framebuffer, which is a special case.
             // in this case we do not wish to modify any state and just silently return false.
@@ -870,31 +862,16 @@ bool Renderer11::applyRenderTarget(gl::Framebuffer *framebuffer)
     }
 
     // Get the depth stencil render buffer and serials
-    gl::FramebufferAttachment *depthStencil = NULL;
+    gl::FramebufferAttachment *depthStencil = framebuffer->getDepthbuffer();
     unsigned int depthbufferSerial = 0;
     unsigned int stencilbufferSerial = 0;
-    if (framebuffer->getDepthbufferType() != GL_NONE)
+    if (depthStencil)
     {
-        depthStencil = framebuffer->getDepthbuffer();
-        if (!depthStencil)
-        {
-            ERR("Depth stencil pointer unexpectedly null.");
-            SafeRelease(framebufferRTVs);
-            return false;
-        }
-
         depthbufferSerial = depthStencil->getSerial();
     }
-    else if (framebuffer->getStencilbufferType() != GL_NONE)
+    else if (framebuffer->getStencilbuffer())
     {
         depthStencil = framebuffer->getStencilbuffer();
-        if (!depthStencil)
-        {
-            ERR("Depth stencil pointer unexpectedly null.");
-            SafeRelease(framebufferRTVs);
-            return false;
-        }
-
         stencilbufferSerial = depthStencil->getSerial();
     }
 
@@ -933,7 +910,7 @@ bool Renderer11::applyRenderTarget(gl::Framebuffer *framebuffer)
         depthbufferSerial != mAppliedDepthbufferSerial ||
         stencilbufferSerial != mAppliedStencilbufferSerial)
     {
-        mDeviceContext->OMSetRenderTargets(getMaxRenderTargets(), framebufferRTVs, framebufferDSV);
+        mDeviceContext->OMSetRenderTargets(getRendererCaps().maxDrawBuffers, framebufferRTVs, framebufferDSV);
 
         mRenderTargetDesc.width = renderTargetWidth;
         mRenderTargetDesc.height = renderTargetHeight;
@@ -1814,20 +1791,6 @@ GUID Renderer11::getAdapterIdentifier() const
     return adapterId;
 }
 
-Range Renderer11::getViewportBounds() const
-{
-    switch (mFeatureLevel)
-    {
-      case D3D_FEATURE_LEVEL_11_0:
-        return Range(D3D11_VIEWPORT_BOUNDS_MIN, D3D11_VIEWPORT_BOUNDS_MAX);
-      case D3D_FEATURE_LEVEL_10_1:
-      case D3D_FEATURE_LEVEL_10_0:
-        return Range(D3D10_VIEWPORT_BOUNDS_MIN, D3D10_VIEWPORT_BOUNDS_MAX);
-      default: UNREACHABLE();
-        return Range(0, 0);
-    }
-}
-
 unsigned int Renderer11::getMaxVertexTextureImageUnits() const
 {
     META_ASSERT(MAX_TEXTURE_IMAGE_UNITS_VTF_SM4 <= gl::IMPLEMENTATION_MAX_VERTEX_TEXTURE_IMAGE_UNITS);
@@ -2003,7 +1966,7 @@ bool Renderer11::getShareHandleSupport() const
     // We only currently support share handles with BGRA surfaces, because
     // chrome needs BGRA. Once chrome fixes this, we should always support them.
     // PIX doesn't seem to support using share handles, so disable them.
-    return getCaps().extensions.textureFormatBGRA8888 && !gl::perfActive();
+    return getRendererExtensions().textureFormatBGRA8888 && !gl::perfActive();
 }
 
 bool Renderer11::getPostSubBufferSupport() const
@@ -2053,76 +2016,6 @@ int Renderer11::getMinorShaderModel() const
       case D3D_FEATURE_LEVEL_11_0: return D3D11_SHADER_MINOR_VERSION;   // 0
       case D3D_FEATURE_LEVEL_10_1: return D3D10_1_SHADER_MINOR_VERSION; // 1
       case D3D_FEATURE_LEVEL_10_0: return D3D10_SHADER_MINOR_VERSION;   // 0
-      default: UNREACHABLE();      return 0;
-    }
-}
-
-float Renderer11::getMaxPointSize() const
-{
-    // choose a reasonable maximum. we enforce this in the shader.
-    // (nb: on a Radeon 2600xt, DX9 reports a 256 max point size)
-    return 1024.0f;
-}
-
-int Renderer11::getMaxViewportDimension() const
-{
-    // Maximum viewport size must be at least as large as the largest render buffer (or larger).
-    // In our case return the maximum texture size, which is the maximum render buffer size.
-    META_ASSERT(D3D11_REQ_TEXTURE2D_U_OR_V_DIMENSION * 2 - 1 <= D3D11_VIEWPORT_BOUNDS_MAX);
-    META_ASSERT(D3D10_REQ_TEXTURE2D_U_OR_V_DIMENSION * 2 - 1 <= D3D10_VIEWPORT_BOUNDS_MAX);
-
-    switch (mFeatureLevel)
-    {
-      case D3D_FEATURE_LEVEL_11_0: 
-        return D3D11_REQ_TEXTURE2D_U_OR_V_DIMENSION;   // 16384
-      case D3D_FEATURE_LEVEL_10_1:
-      case D3D_FEATURE_LEVEL_10_0: 
-        return D3D10_REQ_TEXTURE2D_U_OR_V_DIMENSION;   // 8192
-      default: UNREACHABLE();      
-        return 0;
-    }
-}
-
-int Renderer11::getMaxTextureWidth() const
-{
-    switch (mFeatureLevel)
-    {
-      case D3D_FEATURE_LEVEL_11_0: return D3D11_REQ_TEXTURE2D_U_OR_V_DIMENSION;   // 16384
-      case D3D_FEATURE_LEVEL_10_1:
-      case D3D_FEATURE_LEVEL_10_0: return D3D10_REQ_TEXTURE2D_U_OR_V_DIMENSION;   // 8192
-      default: UNREACHABLE();      return 0;
-    }
-}
-
-int Renderer11::getMaxTextureHeight() const
-{
-    switch (mFeatureLevel)
-    {
-      case D3D_FEATURE_LEVEL_11_0: return D3D11_REQ_TEXTURE2D_U_OR_V_DIMENSION;   // 16384
-      case D3D_FEATURE_LEVEL_10_1:
-      case D3D_FEATURE_LEVEL_10_0: return D3D10_REQ_TEXTURE2D_U_OR_V_DIMENSION;   // 8192
-      default: UNREACHABLE();      return 0;
-    }
-}
-
-int Renderer11::getMaxTextureDepth() const
-{
-    switch (mFeatureLevel)
-    {
-      case D3D_FEATURE_LEVEL_11_0: return D3D11_REQ_TEXTURE3D_U_V_OR_W_DIMENSION;   // 2048
-      case D3D_FEATURE_LEVEL_10_1:
-      case D3D_FEATURE_LEVEL_10_0: return D3D10_REQ_TEXTURE3D_U_V_OR_W_DIMENSION;   // 2048
-      default: UNREACHABLE();      return 0;
-    }
-}
-
-int Renderer11::getMaxTextureArrayLayers() const
-{
-    switch (mFeatureLevel)
-    {
-      case D3D_FEATURE_LEVEL_11_0: return D3D11_REQ_TEXTURE2D_ARRAY_AXIS_DIMENSION;   // 2048
-      case D3D_FEATURE_LEVEL_10_1:
-      case D3D_FEATURE_LEVEL_10_0: return D3D10_REQ_TEXTURE2D_ARRAY_AXIS_DIMENSION;   // 512
       default: UNREACHABLE();      return 0;
     }
 }
@@ -2223,11 +2116,6 @@ int Renderer11::getNearestSupportedSamples(DXGI_FORMAT format, unsigned int requ
     }
 
     return -1;
-}
-
-unsigned int Renderer11::getMaxRenderTargets() const
-{
-    return d3d11::GetMaximumSimultaneousRenderTargets(mFeatureLevel);
 }
 
 bool Renderer11::copyToRenderTarget(TextureStorageInterface2D *dest, TextureStorageInterface2D *source)
@@ -2555,7 +2443,7 @@ void Renderer11::setOneTimeRenderTarget(ID3D11RenderTargetView *renderTargetView
 
     rtvArray[0] = renderTargetView;
 
-    mDeviceContext->OMSetRenderTargets(getMaxRenderTargets(), rtvArray, NULL);
+    mDeviceContext->OMSetRenderTargets(getRendererCaps().maxDrawBuffers, rtvArray, NULL);
 
     // Do not preserve the serial for this one-time-use render target
     for (unsigned int rtIndex = 0; rtIndex < gl::IMPLEMENTATION_MAX_DRAW_BUFFERS; rtIndex++)
@@ -2801,7 +2689,7 @@ FenceImpl *Renderer11::createFence()
 
 bool Renderer11::supportsFastCopyBufferToTexture(GLenum internalFormat) const
 {
-    ASSERT(getCaps().extensions.pixelBufferObject);
+    ASSERT(getRendererExtensions().pixelBufferObject);
 
     // sRGB formats do not work with D3D11 buffer SRVs
     if (gl::GetColorEncoding(internalFormat) == GL_SRGB)
@@ -2810,7 +2698,7 @@ bool Renderer11::supportsFastCopyBufferToTexture(GLenum internalFormat) const
     }
 
     // We cannot support direct copies to non-color-renderable formats
-    if (!getCaps().textureCaps.get(internalFormat).colorRendering)
+    if (!getRendererTextureCaps().get(internalFormat).colorRendering)
     {
         return false;
     }
@@ -3439,20 +3327,20 @@ void Renderer11::invalidateFramebufferSwizzles(gl::Framebuffer *framebuffer)
         gl::FramebufferAttachment *attachment = framebuffer->getColorbuffer(colorAttachment);
         if (attachment && attachment->isTexture())
         {
-            invalidateFBOAttachmentSwizzles(attachment, framebuffer->getColorbufferMipLevel(colorAttachment));
+            invalidateFBOAttachmentSwizzles(attachment, attachment->mipLevel());
         }
     }
 
     gl::FramebufferAttachment *depthAttachment = framebuffer->getDepthbuffer();
     if (depthAttachment && depthAttachment->isTexture())
     {
-        invalidateFBOAttachmentSwizzles(depthAttachment, framebuffer->getDepthbufferMipLevel());
+        invalidateFBOAttachmentSwizzles(depthAttachment, depthAttachment->mipLevel());
     }
 
     gl::FramebufferAttachment *stencilAttachment = framebuffer->getStencilbuffer();
     if (stencilAttachment && stencilAttachment->isTexture())
     {
-        invalidateFBOAttachmentSwizzles(stencilAttachment, framebuffer->getStencilbufferMipLevel());
+        invalidateFBOAttachmentSwizzles(stencilAttachment, stencilAttachment->mipLevel());
     }
 }
 
@@ -3518,9 +3406,9 @@ Renderer11::MultisampleSupportInfo Renderer11::getMultisampleSupportInfo(DXGI_FO
     return supportInfo;
 }
 
-gl::Caps Renderer11::generateCaps() const
+void Renderer11::generateCaps(gl::Caps *outCaps, gl::TextureCapsMap *outTextureCaps, gl::Extensions *outExtensions) const
 {
-    return d3d11_gl::GenerateCaps(mDevice);
+    d3d11_gl::GenerateCaps(mDevice, outCaps, outTextureCaps, outExtensions);
 }
 
 }

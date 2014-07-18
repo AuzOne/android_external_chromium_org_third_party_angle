@@ -191,11 +191,23 @@ struct Caps
 {
     Caps();
 
-    // Texture format support
-    TextureCapsMap textureCaps;
+    // Table 6.28, implementation dependent values
+    GLuint64 maxElementIndex;
+    GLuint max3DTextureSize;
+    GLuint max2DTextureSize;
+    GLuint maxArrayTextureLayers;
+    GLfloat maxLODBias;
+    GLuint maxCubeMapTextureSize;
+    GLuint maxRenderbufferSize;
+    GLuint maxDrawBuffers;
+    GLuint maxColorAttachments;
+    GLuint maxViewportWidth;
+    GLuint maxViewportHeight;
+    GLfloat minAliasedPointSize;
+    GLfloat maxAliasedPointSize;
+    GLfloat minAliasedLineWidth;
+    GLfloat maxAliasedLineWidth;
 
-    // Extension support
-    Extensions extensions;
 };
 
 }

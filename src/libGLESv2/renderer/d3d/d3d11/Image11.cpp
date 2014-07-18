@@ -67,8 +67,8 @@ void Image11::generateMipmap(Image11 *dest, Image11 *src)
         return;
     }
 
-    const unsigned char *sourceData = reinterpret_cast<const unsigned char*>(srcMapped.pData);
-    unsigned char *destData = reinterpret_cast<unsigned char*>(destMapped.pData);
+    const uint8_t *sourceData = reinterpret_cast<const uint8_t*>(srcMapped.pData);
+    uint8_t *destData = reinterpret_cast<uint8_t*>(destMapped.pData);
 
     mipFunction(src->getWidth(), src->getHeight(), src->getDepth(), sourceData, srcMapped.RowPitch, srcMapped.DepthPitch,
                 destData, destMapped.RowPitch, destMapped.DepthPitch);
@@ -168,8 +168,10 @@ void Image11::loadData(GLint xoffset, GLint yoffset, GLint zoffset, GLsizei widt
         return;
     }
 
-    void* offsetMappedData = (void*)((BYTE *)mappedImage.pData + (yoffset * mappedImage.RowPitch + xoffset * outputPixelSize + zoffset * mappedImage.DepthPitch));
-    loadFunction(width, height, depth, input, inputRowPitch, inputDepthPitch, offsetMappedData, mappedImage.RowPitch, mappedImage.DepthPitch);
+    uint8_t* offsetMappedData = (reinterpret_cast<uint8_t*>(mappedImage.pData) + (yoffset * mappedImage.RowPitch + xoffset * outputPixelSize + zoffset * mappedImage.DepthPitch));
+    loadFunction(width, height, depth,
+                 reinterpret_cast<const uint8_t*>(input), inputRowPitch, inputDepthPitch,
+                 offsetMappedData, mappedImage.RowPitch, mappedImage.DepthPitch);
 
     unmap();
 }
@@ -198,11 +200,12 @@ void Image11::loadCompressedData(GLint xoffset, GLint yoffset, GLint zoffset, GL
         return;
     }
 
-    void* offsetMappedData = (void*)((BYTE*)mappedImage.pData + ((yoffset / outputBlockHeight) * mappedImage.RowPitch +
-                                                                 (xoffset / outputBlockWidth) * outputPixelSize +
-                                                                 zoffset * mappedImage.DepthPitch));
+    uint8_t* offsetMappedData = reinterpret_cast<uint8_t*>(mappedImage.pData) + ((yoffset / outputBlockHeight) * mappedImage.RowPitch +
+                                                                           (xoffset / outputBlockWidth) * outputPixelSize +
+                                                                           zoffset * mappedImage.DepthPitch);
 
-    loadFunction(width, height, depth, input, inputRowPitch, inputDepthPitch,
+    loadFunction(width, height, depth,
+                 reinterpret_cast<const uint8_t*>(input), inputRowPitch, inputDepthPitch,
                  offsetMappedData, mappedImage.RowPitch, mappedImage.DepthPitch);
 
     unmap();

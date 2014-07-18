@@ -40,7 +40,7 @@ D3D11_QUERY ConvertQueryType(GLenum queryType);
 namespace d3d11_gl
 {
 
-gl::Caps GenerateCaps(ID3D11Device *device);
+void GenerateCaps(ID3D11Device *device, gl::Caps *caps, gl::TextureCapsMap *textureCapsMap, gl::Extensions *extensions);
 
 }
 
@@ -165,14 +165,6 @@ inline void SetBufferData(ID3D11DeviceContext *context, ID3D11Buffer *constantBu
 
     context->Unmap(constantBuffer, 0);
 }
-
-bool GetNPOTTextureSupport(D3D_FEATURE_LEVEL featureLevel);
-float GetMaximumAnisotropy(D3D_FEATURE_LEVEL featureLevel);
-bool GetOcclusionQuerySupport(D3D_FEATURE_LEVEL featureLevel);
-bool GetEventQuerySupport(D3D_FEATURE_LEVEL featureLevel);
-bool GetInstancingSupport(D3D_FEATURE_LEVEL featureLevel);
-bool GetDerivativeInstructionSupport(D3D_FEATURE_LEVEL featureLevel);
-size_t GetMaximumSimultaneousRenderTargets(D3D_FEATURE_LEVEL featureLevel);
 
 }
 

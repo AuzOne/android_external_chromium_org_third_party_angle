@@ -667,7 +667,7 @@ void Renderer9::setSamplerState(gl::SamplerType type, int index, const gl::Sampl
         mDevice->SetSamplerState(d3dSampler, D3DSAMP_MINFILTER, d3dMinFilter);
         mDevice->SetSamplerState(d3dSampler, D3DSAMP_MIPFILTER, d3dMipFilter);
         mDevice->SetSamplerState(d3dSampler, D3DSAMP_MAXMIPLEVEL, samplerState.baseLevel);
-        if (getCaps().extensions.textureFilterAnisotropic)
+        if (getRendererExtensions().textureFilterAnisotropic)
         {
             mDevice->SetSamplerState(d3dSampler, D3DSAMP_MAXANISOTROPY, (DWORD)samplerState.maxAnisotropy);
         }
@@ -1151,29 +1151,25 @@ bool Renderer9::applyRenderTarget(gl::Framebuffer *framebuffer)
 {
     // if there is no color attachment we must synthesize a NULL colorattachment
     // to keep the D3D runtime happy.  This should only be possible if depth texturing.
-    gl::FramebufferAttachment *renderbufferObject = NULL;
-    if (framebuffer->getColorbufferType(0) != GL_NONE)
+    gl::FramebufferAttachment *attachment = framebuffer->getColorbuffer(0);
+    if (!attachment)
     {
-        renderbufferObject = framebuffer->getColorbuffer(0);
+        attachment = getNullColorbuffer(framebuffer->getDepthbuffer());
     }
-    else
-    {
-        renderbufferObject = getNullColorbuffer(framebuffer->getDepthbuffer());
-    }
-    if (!renderbufferObject)
+    if (!attachment)
     {
         ERR("unable to locate renderbuffer for FBO.");
         return false;
     }
 
     bool renderTargetChanged = false;
-    unsigned int renderTargetSerial = renderbufferObject->getSerial();
+    unsigned int renderTargetSerial = attachment->getSerial();
     if (renderTargetSerial != mAppliedRenderTargetSerial)
     {
         // Apply the render target on the device
         IDirect3DSurface9 *renderTargetSurface = NULL;
 
-        RenderTarget *renderTarget = renderbufferObject->getRenderTarget();
+        RenderTarget *renderTarget = attachment->getRenderTarget();
         if (renderTarget)
         {
             renderTargetSurface = RenderTarget9::makeRenderTarget9(renderTarget)->getSurface();
@@ -1192,29 +1188,16 @@ bool Renderer9::applyRenderTarget(gl::Framebuffer *framebuffer)
         renderTargetChanged = true;
     }
 
-    gl::FramebufferAttachment *depthStencil = NULL;
+    gl::FramebufferAttachment *depthStencil = framebuffer->getDepthbuffer();
     unsigned int depthbufferSerial = 0;
     unsigned int stencilbufferSerial = 0;
-    if (framebuffer->getDepthbufferType() != GL_NONE)
+    if (depthStencil)
     {
-        depthStencil = framebuffer->getDepthbuffer();
-        if (!depthStencil)
-        {
-            ERR("Depth stencil pointer unexpectedly null.");
-            return false;
-        }
-
         depthbufferSerial = depthStencil->getSerial();
     }
-    else if (framebuffer->getStencilbufferType() != GL_NONE)
+    else if (framebuffer->getStencilbuffer())
     {
         depthStencil = framebuffer->getStencilbuffer();
-        if (!depthStencil)
-        {
-            ERR("Depth stencil pointer unexpectedly null.");
-            return false;
-        }
-
         stencilbufferSerial = depthStencil->getSerial();
     }
 
@@ -1276,9 +1259,9 @@ bool Renderer9::applyRenderTarget(gl::Framebuffer *framebuffer)
         mForceSetViewport = true;
         mForceSetBlendState = true;
 
-        mRenderTargetDesc.width = renderbufferObject->getWidth();
-        mRenderTargetDesc.height = renderbufferObject->getHeight();
-        mRenderTargetDesc.format = renderbufferObject->getActualFormat();
+        mRenderTargetDesc.width = attachment->getWidth();
+        mRenderTargetDesc.height = attachment->getHeight();
+        mRenderTargetDesc.format = attachment->getActualFormat();
         mRenderTargetDescInitialized = true;
     }
 
@@ -1401,7 +1384,7 @@ void Renderer9::drawLineLoop(GLsizei count, GLenum type, const GLvoid *indices, 
 
     unsigned int startIndex = 0;
 
-    if (getCaps().extensions.elementIndexUint)
+    if (getRendererExtensions().elementIndexUint)
     {
         if (!mLineLoopIB)
         {
@@ -2368,41 +2351,6 @@ int Renderer9::getMajorShaderModel() const
     return D3DSHADER_VERSION_MAJOR(mDeviceCaps.PixelShaderVersion);
 }
 
-float Renderer9::getMaxPointSize() const
-{
-    // Point size clamped at 1.0f for SM2
-    return getMajorShaderModel() == 3 ? mDeviceCaps.MaxPointSize : 1.0f;
-}
-
-int Renderer9::getMaxViewportDimension() const
-{
-    int maxTextureDimension = std::min(std::min(getMaxTextureWidth(), getMaxTextureHeight()),
-                                       (int)gl::IMPLEMENTATION_MAX_2D_TEXTURE_SIZE);
-    return maxTextureDimension;
-}
-
-int Renderer9::getMaxTextureWidth() const
-{
-    return (int)mDeviceCaps.MaxTextureWidth;
-}
-
-int Renderer9::getMaxTextureHeight() const
-{
-    return (int)mDeviceCaps.MaxTextureHeight;
-}
-
-int Renderer9::getMaxTextureDepth() const
-{
-    // 3D textures are not available in the D3D9 backend.
-    return 1;
-}
-
-int Renderer9::getMaxTextureArrayLayers() const
-{
-    // 2D array textures are not available in the D3D9 backend.
-    return 1;
-}
-
 DWORD Renderer9::getCapsDeclTypes() const
 {
     return mDeviceCaps.DeclTypes;
@@ -2494,12 +2442,6 @@ int Renderer9::getNearestSupportedSamples(D3DFORMAT format, int requested) const
     }
 
     return -1;
-}
-
-unsigned int Renderer9::getMaxRenderTargets() const
-{
-    // we do not support MRT in d3d9
-    return 1;
 }
 
 bool Renderer9::copyToRenderTarget(TextureStorageInterface2D *dest, TextureStorageInterface2D *source)
@@ -3281,9 +3223,9 @@ GLenum Renderer9::getVertexComponentType(const gl::VertexFormat &vertexFormat) c
     return d3d9::GetDeclTypeComponentType(declType);
 }
 
-gl::Caps Renderer9::generateCaps() const
+void Renderer9::generateCaps(gl::Caps *outCaps, gl::TextureCapsMap *outTextureCaps, gl::Extensions *outExtensions) const
 {
-    return d3d9_gl::GenerateCaps(mD3d9, mDevice, mDeviceType, mAdapter);
+    d3d9_gl::GenerateCaps(mD3d9, mDevice, mDeviceType, mAdapter, outCaps, outTextureCaps, outExtensions);
 }
 
 }

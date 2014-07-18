@@ -18,7 +18,8 @@
 #include "libGLESv2/Renderbuffer.h"
 #include "libGLESv2/renderer/Image.h"
 #include "libGLESv2/renderer/Renderer.h"
-#include "libGLESv2/renderer/TextureStorage.h"
+#include "libGLESv2/renderer/d3d/ImageD3D.h"
+#include "libGLESv2/renderer/d3d/TextureStorage.h"
 #include "libEGL/Surface.h"
 #include "libGLESv2/Buffer.h"
 #include "libGLESv2/renderer/BufferImpl.h"
@@ -53,22 +54,6 @@ Texture::Texture(rx::Renderer *renderer, GLuint id, GLenum target) : RefCountObj
 {
     mRenderer = renderer;
 
-    mSamplerState.minFilter = GL_NEAREST_MIPMAP_LINEAR;
-    mSamplerState.magFilter = GL_LINEAR;
-    mSamplerState.wrapS = GL_REPEAT;
-    mSamplerState.wrapT = GL_REPEAT;
-    mSamplerState.wrapR = GL_REPEAT;
-    mSamplerState.maxAnisotropy = 1.0f;
-    mSamplerState.baseLevel = 0;
-    mSamplerState.maxLevel = 1000;
-    mSamplerState.minLod = -1000.0f;
-    mSamplerState.maxLod = 1000.0f;
-    mSamplerState.compareMode = GL_NONE;
-    mSamplerState.compareFunc = GL_LEQUAL;
-    mSamplerState.swizzleRed = GL_RED;
-    mSamplerState.swizzleGreen = GL_GREEN;
-    mSamplerState.swizzleBlue = GL_BLUE;
-    mSamplerState.swizzleAlpha = GL_ALPHA;
     mUsage = GL_NONE;
 
     mDirtyImages = true;
@@ -87,170 +72,12 @@ GLenum Texture::getTarget() const
     return mTarget;
 }
 
-void Texture::setMinFilter(GLenum filter)
-{
-    mSamplerState.minFilter = filter;
-}
-
-void Texture::setMagFilter(GLenum filter)
-{
-    mSamplerState.magFilter = filter;
-}
-
-void Texture::setWrapS(GLenum wrap)
-{
-    mSamplerState.wrapS = wrap;
-}
-
-void Texture::setWrapT(GLenum wrap)
-{
-    mSamplerState.wrapT = wrap;
-}
-
-void Texture::setWrapR(GLenum wrap)
-{
-    mSamplerState.wrapR = wrap;
-}
-
-void Texture::setMaxAnisotropy(float textureMaxAnisotropy, float contextMaxAnisotropy)
-{
-    mSamplerState.maxAnisotropy = std::min(textureMaxAnisotropy, contextMaxAnisotropy);
-}
-
-void Texture::setCompareMode(GLenum mode)
-{
-    mSamplerState.compareMode = mode;
-}
-
-void Texture::setCompareFunc(GLenum func)
-{
-    mSamplerState.compareFunc = func;
-}
-
-void Texture::setSwizzleRed(GLenum swizzle)
-{
-    mSamplerState.swizzleRed = swizzle;
-}
-
-void Texture::setSwizzleGreen(GLenum swizzle)
-{
-    mSamplerState.swizzleGreen = swizzle;
-}
-
-void Texture::setSwizzleBlue(GLenum swizzle)
-{
-    mSamplerState.swizzleBlue = swizzle;
-}
-
-void Texture::setSwizzleAlpha(GLenum swizzle)
-{
-    mSamplerState.swizzleAlpha = swizzle;
-}
-
-void Texture::setBaseLevel(GLint baseLevel)
-{
-    mSamplerState.baseLevel = baseLevel;
-}
-
-void Texture::setMaxLevel(GLint maxLevel)
-{
-    mSamplerState.maxLevel = maxLevel;
-}
-
-void Texture::setMinLod(GLfloat minLod)
-{
-    mSamplerState.minLod = minLod;
-}
-
-void Texture::setMaxLod(GLfloat maxLod)
-{
-    mSamplerState.maxLod = maxLod;
-}
-
 void Texture::setUsage(GLenum usage)
 {
     mUsage = usage;
 }
 
-GLenum Texture::getMinFilter() const
-{
-    return mSamplerState.minFilter;
-}
-
-GLenum Texture::getMagFilter() const
-{
-    return mSamplerState.magFilter;
-}
-
-GLenum Texture::getWrapS() const
-{
-    return mSamplerState.wrapS;
-}
-
-GLenum Texture::getWrapT() const
-{
-    return mSamplerState.wrapT;
-}
-
-GLenum Texture::getWrapR() const
-{
-    return mSamplerState.wrapR;
-}
-
-float Texture::getMaxAnisotropy() const
-{
-    return mSamplerState.maxAnisotropy;
-}
-
-GLenum Texture::getSwizzleRed() const
-{
-    return mSamplerState.swizzleRed;
-}
-
-GLenum Texture::getSwizzleGreen() const
-{
-    return mSamplerState.swizzleGreen;
-}
-
-GLenum Texture::getSwizzleBlue() const
-{
-    return mSamplerState.swizzleBlue;
-}
-
-GLenum Texture::getSwizzleAlpha() const
-{
-    return mSamplerState.swizzleAlpha;
-}
-
-GLint Texture::getBaseLevel() const
-{
-    return mSamplerState.baseLevel;
-}
-
-GLint Texture::getMaxLevel() const
-{
-    return mSamplerState.maxLevel;
-}
-
-GLfloat Texture::getMinLod() const
-{
-    return mSamplerState.minLod;
-}
-
-GLfloat Texture::getMaxLod() const
-{
-    return mSamplerState.maxLod;
-}
-
-bool Texture::isSwizzled() const
-{
-    return mSamplerState.swizzleRed   != GL_RED   ||
-           mSamplerState.swizzleGreen != GL_GREEN ||
-           mSamplerState.swizzleBlue  != GL_BLUE  ||
-           mSamplerState.swizzleAlpha != GL_ALPHA;
-}
-
-void Texture::getSamplerState(SamplerState *sampler)
+void Texture::getSamplerStateWithNativeOffset(SamplerState *sampler)
 {
     *sampler = mSamplerState;
 
@@ -432,7 +259,8 @@ int Texture::immutableLevelCount()
 
 GLint Texture::creationLevels(GLsizei width, GLsizei height, GLsizei depth) const
 {
-    if ((isPow2(width) && isPow2(height) && isPow2(depth)) || mRenderer->getCaps().extensions.textureNPOT)
+    // TODO(geofflang): use context's extensions
+    if ((isPow2(width) && isPow2(height) && isPow2(depth)) || mRenderer->getRendererExtensions().textureNPOT)
     {
         // Maximum number of levels
         return log2(std::max(std::max(width, height), depth)) + 1;
@@ -619,7 +447,7 @@ void Texture2D::commitRect(GLint level, GLint xoffset, GLint yoffset, GLsizei wi
 {
     if (isValidLevel(level))
     {
-        rx::Image *image = mImageArray[level];
+        rx::ImageD3D *image = rx::ImageD3D::makeImageD3D(mImageArray[level]);
         if (image->copyToStorage(mTexStorage, level, xoffset, yoffset, width, height))
         {
             image->markClean();
@@ -748,7 +576,7 @@ void Texture2D::setCompleteTexStorage(rx::TextureStorageInterface2D *newComplete
     {
         for (int level = 0; level < mTexStorage->getLevelCount(); level++)
         {
-            mImageArray[level]->setManagedSurface(mTexStorage, level);
+            rx::ImageD3D::makeImageD3D(mImageArray[level])->setManagedSurface(mTexStorage, level);
         }
     }
 
@@ -766,7 +594,8 @@ bool Texture2D::isSamplerComplete(const SamplerState &samplerState) const
         return false;
     }
 
-    if (!mRenderer->getCaps().textureCaps.get(getInternalFormat(0)).filtering)
+    // TODO(geofflang): use context's texture caps
+    if (!mRenderer->getRendererTextureCaps().get(getInternalFormat(0)).filtering)
     {
         if (samplerState.magFilter != GL_NEAREST ||
             (samplerState.minFilter != GL_NEAREST && samplerState.minFilter != GL_NEAREST_MIPMAP_NEAREST))
@@ -775,7 +604,8 @@ bool Texture2D::isSamplerComplete(const SamplerState &samplerState) const
         }
     }
 
-    bool npotSupport = mRenderer->getCaps().extensions.textureNPOT;
+    // TODO(geofflang): use context's extensions
+    bool npotSupport = mRenderer->getRendererExtensions().textureNPOT;
 
     if (!npotSupport)
     {
@@ -1165,7 +995,7 @@ void TextureCubeMap::commitRect(int faceIndex, GLint level, GLint xoffset, GLint
 {
     if (isValidFaceLevel(faceIndex, level))
     {
-        rx::Image *image = mImageArray[faceIndex][level];
+        rx::ImageD3D *image = rx::ImageD3D::makeImageD3D(mImageArray[faceIndex][level]);
         if (image->copyToStorage(mTexStorage, faceIndex, level, xoffset, yoffset, width, height))
             image->markClean();
     }
@@ -1196,7 +1026,8 @@ bool TextureCubeMap::isSamplerComplete(const SamplerState &samplerState) const
 
     bool mipmapping = IsMipmapFiltered(samplerState);
 
-    if (!mRenderer->getCaps().textureCaps.get(getInternalFormat(GL_TEXTURE_CUBE_MAP_POSITIVE_X, 0)).filtering)
+    // TODO(geofflang): use context's texture caps
+    if (!mRenderer->getRendererTextureCaps().get(getInternalFormat(GL_TEXTURE_CUBE_MAP_POSITIVE_X, 0)).filtering)
     {
         if (samplerState.magFilter != GL_NEAREST ||
             (samplerState.minFilter != GL_NEAREST && samplerState.minFilter != GL_NEAREST_MIPMAP_NEAREST))
@@ -1205,7 +1036,8 @@ bool TextureCubeMap::isSamplerComplete(const SamplerState &samplerState) const
         }
     }
 
-    if (!isPow2(size) && !mRenderer->getCaps().extensions.textureNPOT)
+    // TODO(geofflang): use context's extensions
+    if (!isPow2(size) && !mRenderer->getRendererExtensions().textureNPOT)
     {
         if (samplerState.wrapS != GL_CLAMP_TO_EDGE || samplerState.wrapT != GL_CLAMP_TO_EDGE || mipmapping)
         {
@@ -1382,7 +1214,7 @@ void TextureCubeMap::setCompleteTexStorage(rx::TextureStorageInterfaceCube *newC
         {
             for (int level = 0; level < mTexStorage->getLevelCount(); level++)
             {
-                mImageArray[faceIndex][level]->setManagedSurface(mTexStorage, faceIndex, level);
+                rx::ImageD3D::makeImageD3D(mImageArray[faceIndex][level])->setManagedSurface(mTexStorage, faceIndex, level);
             }
         }
     }
@@ -1917,7 +1749,8 @@ bool Texture3D::isSamplerComplete(const SamplerState &samplerState) const
         return false;
     }
 
-    if (!mRenderer->getCaps().textureCaps.get(getInternalFormat(0)).filtering)
+    // TODO(geofflang): use context's texture caps
+    if (!mRenderer->getRendererTextureCaps().get(getInternalFormat(0)).filtering)
     {
         if (samplerState.magFilter != GL_NEAREST ||
             (samplerState.minFilter != GL_NEAREST && samplerState.minFilter != GL_NEAREST_MIPMAP_NEAREST))
@@ -2195,7 +2028,7 @@ void Texture3D::commitRect(GLint level, GLint xoffset, GLint yoffset, GLint zoff
 {
     if (isValidLevel(level))
     {
-        rx::Image *image = mImageArray[level];
+        rx::ImageD3D *image = rx::ImageD3D::makeImageD3D(mImageArray[level]);
         if (image->copyToStorage(mTexStorage, level, xoffset, yoffset, zoffset, width, height, depth))
         {
             image->markClean();
@@ -2452,7 +2285,8 @@ bool Texture2DArray::isSamplerComplete(const SamplerState &samplerState) const
         return false;
     }
 
-    if (!mRenderer->getCaps().textureCaps.get(getBaseLevelInternalFormat()).filtering)
+    // TODO(geofflang): use context's texture caps
+    if (!mRenderer->getRendererTextureCaps().get(getBaseLevelInternalFormat()).filtering)
     {
         if (samplerState.magFilter != GL_NEAREST ||
             (samplerState.minFilter != GL_NEAREST && samplerState.minFilter != GL_NEAREST_MIPMAP_NEAREST))
@@ -2733,7 +2567,7 @@ void Texture2DArray::commitRect(GLint level, GLint xoffset, GLint yoffset, GLint
 {
     if (isValidLevel(level) && layerTarget < getLayers(level))
     {
-        rx::Image *image = mImageArray[level][layerTarget];
+        rx::ImageD3D *image = rx::ImageD3D::makeImageD3D(mImageArray[level][layerTarget]);
         if (image->copyToStorage(mTexStorage, level, xoffset, yoffset, layerTarget, width, height))
         {
             image->markClean();

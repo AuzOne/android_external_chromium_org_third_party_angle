@@ -17,12 +17,8 @@
 #include "libGLESv2/formatutils.h"
 #include "common/blocklayout.h"
 
-static std::string Str(int i)
-{
-    char buffer[20];
-    snprintf(buffer, sizeof(buffer), "%d", i);
-    return buffer;
-}
+// For use with ArrayString, see angleutils.h
+META_ASSERT(GL_INVALID_INDEX == UINT_MAX);
 
 namespace gl_d3d
 {
@@ -76,11 +72,6 @@ std::string HLSLTypeString(GLenum type)
 
 namespace gl
 {
-
-std::string ArrayString(unsigned int i)
-{
-    return (i == GL_INVALID_INDEX ? "" : "[" + Str(i) + "]");
-}
 
 const std::string VERTEX_ATTRIBUTE_STUB_STRING = "@@ VERTEX ATTRIBUTES @@";
 const std::string PIXEL_OUTPUT_STUB_STRING = "@@ PIXEL OUTPUT @@";
@@ -667,8 +658,8 @@ bool DynamicHLSL::generateShaderLinkHLSL(InfoLog &infoLog, int registers, const 
     // Two cases when writing to gl_FragColor and using ESSL 1.0:
     // - with a 3.0 context, the output color is copied to channel 0
     // - with a 2.0 context, the output color is broadcast to all channels
-    const bool broadcast = (usesFragColor && mRenderer->getCurrentClientVersion() < 3);
-    const unsigned int numRenderTargets = (broadcast || usesMRT ? mRenderer->getMaxRenderTargets() : 1);
+    const bool broadcast = (fragmentShader->mUsesFragColor && mRenderer->getCurrentClientVersion() < 3);
+    const unsigned int numRenderTargets = (broadcast || usesMRT ? mRenderer->getRendererCaps().maxDrawBuffers : 1);
 
     int shaderVersion = vertexShader->getShaderVersion();
 
@@ -1005,6 +996,7 @@ std::string DynamicHLSL::generatePointSpriteHLSL(int registers, FragmentShader *
     std::string inLinkHLSL = generateVaryingLinkHLSL(inSemantics, varyingHLSL);
     std::string outLinkHLSL = generateVaryingLinkHLSL(outSemantics, varyingHLSL);
 
+    // TODO(geofflang): use context's caps
     geomHLSL += "uniform float4 dx_ViewCoords : register(c1);\n"
                 "\n"
                 "struct GS_INPUT\n" + inLinkHLSL + "\n" +
@@ -1026,8 +1018,8 @@ std::string DynamicHLSL::generatePointSpriteHLSL(int registers, FragmentShader *
                   "    float2(0.0f, 0.0f)\n"
                   "};\n"
                   "\n"
-                  "static float minPointSize = " + Str(ALIASED_POINT_SIZE_RANGE_MIN) + ".0f;\n"
-                  "static float maxPointSize = " + Str(mRenderer->getMaxPointSize()) + ".0f;\n"
+                  "static float minPointSize = " + Str(mRenderer->getRendererCaps().minAliasedPointSize) + ".0f;\n"
+                  "static float maxPointSize = " + Str(mRenderer->getRendererCaps().maxAliasedPointSize) + ".0f;\n"
                   "\n"
                   "[maxvertexcount(4)]\n"
                   "void main(point GS_INPUT input[1], inout TriangleStream<GS_OUTPUT> outStream)\n"
@@ -1074,7 +1066,7 @@ std::string DynamicHLSL::generatePointSpriteHLSL(int registers, FragmentShader *
 // This method needs to match OutputHLSL::decorate
 std::string DynamicHLSL::decorateVariable(const std::string &name)
 {
-    if (name.compare(0, 3, "gl_"))
+    if (name.compare(0, 3, "gl_") != 0)
     {
         return "_" + name;
     }

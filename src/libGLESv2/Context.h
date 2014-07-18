@@ -306,6 +306,7 @@ class Context
     void useProgram(GLuint program);
     void linkProgram(GLuint program);
     void setProgramBinary(GLuint program, const void *binary, GLint length);
+    GLuint getCurrentProgram() const;
     void bindTransformFeedback(GLuint transformFeedback);
 
     void beginQuery(GLenum target, GLuint query);
@@ -330,7 +331,7 @@ class Context
     FenceSync *getFenceSync(GLsync handle) const;
     Shader *getShader(GLuint handle) const;
     Program *getProgram(GLuint handle) const;
-    Texture *getTexture(GLuint handle);
+    Texture *getTexture(GLuint handle) const;
     Framebuffer *getFramebuffer(GLuint handle) const;
     Renderbuffer *getRenderbuffer(GLuint handle);
     VertexArray *getVertexArray(GLuint handle) const;
@@ -341,7 +342,7 @@ class Context
     Buffer *getTargetBuffer(GLenum target) const;
     Buffer *getArrayBuffer();
     Buffer *getElementArrayBuffer() const;
-    ProgramBinary *getCurrentProgramBinary();
+    ProgramBinary *getCurrentProgramBinary() const;
 
     Texture *getTargetTexture(GLenum target) const;
     Texture2D *getTexture2D() const;
@@ -359,7 +360,7 @@ class Context
 
     Framebuffer *getTargetFramebuffer(GLenum target) const;
     GLuint getTargetFramebufferHandle(GLenum target) const;
-    Framebuffer *getReadFramebuffer();
+    Framebuffer *getReadFramebuffer() const;
     Framebuffer *getDrawFramebuffer();
     const Framebuffer *getDrawFramebuffer() const;
     VertexArray *getCurrentVertexArray() const;
@@ -402,31 +403,22 @@ class Context
     virtual int getClientVersion() const;
 
     const Caps &getCaps() const;
+    const TextureCapsMap &getTextureCaps() const;
+    const Extensions &getExtensions() const;
 
     int getMajorShaderModel() const;
-    float getMaximumPointSize() const;
     unsigned int getMaximumCombinedTextureImageUnits() const;
     unsigned int getMaximumCombinedUniformBufferBindings() const;
-    int getMaximumRenderbufferDimension() const;
-    int getMaximum2DTextureDimension() const;
-    int getMaximumCubeTextureDimension() const;
-    int getMaximum3DTextureDimension() const;
-    int getMaximum2DArrayTextureLayers() const;
-    int getMaximum2DTextureLevel() const;
-    int getMaximumCubeTextureLevel() const;
-    int getMaximum3DTextureLevel() const;
-    int getMaximum2DArrayTextureLevel() const;
-    unsigned int getMaximumRenderTargets() const;
     GLsizei getMaxSupportedSamples() const;
     GLsizei getMaxSupportedFormatSamples(GLenum internalFormat) const;
     GLsizei getNumSampleCounts(GLenum internalFormat) const;
     void getSampleCounts(GLenum internalFormat, GLsizei bufSize, GLint *params) const;
     unsigned int getMaxTransformFeedbackBufferBindings() const;
     GLintptr getUniformBufferOffsetAlignment() const;
-    const char *getRendererString() const;
+    const std::string &getRendererString() const;
 
-    const char *getExtensionString() const;
-    const char *getExtensionString(size_t idx) const;
+    const std::string &getExtensionString() const;
+    const std::string &getExtensionString(size_t idx) const;
     size_t getExtensionStringCount() const;
 
     void getCurrentReadFormatType(GLenum *internalFormat, GLenum *format, GLenum *type);
@@ -477,6 +469,11 @@ class Context
 
     size_t getBoundFramebufferTextureSerials(FramebufferTextureSerialArray *outSerialArray);
 
+    // Caps to use for validation
+    Caps mCaps;
+    TextureCapsMap mTextureCaps;
+    Extensions mExtensions;
+
     rx::Renderer *const mRenderer;
 
     int mClientVersion;
@@ -509,9 +506,9 @@ class Context
     TransformFeedbackMap mTransformFeedbackMap;
     HandleAllocator mTransformFeedbackAllocator;
 
-    const char *mRendererString;
-    const char *mExtensionString;
-    std::vector<const char *> mExtensionStrings;
+    std::string mRendererString;
+    std::string mExtensionString;
+    std::vector<std::string> mExtensionStrings;
 
     BindingPointer<Texture> mIncompleteTextures[TEXTURE_TYPE_COUNT];
 
@@ -533,18 +530,7 @@ class Context
     Framebuffer *mBoundDrawFramebuffer;
 
     int mMajorShaderModel;
-    float mMaximumPointSize;
     bool mSupportsVertexTexture;
-    int  mMaxViewportDimension;
-    int  mMaxRenderbufferDimension;
-    int  mMax2DTextureDimension;
-    int  mMaxCubeTextureDimension;
-    int  mMax3DTextureDimension;
-    int  mMax2DArrayTextureLayers;
-    int  mMax2DTextureLevel;
-    int  mMaxCubeTextureLevel;
-    int  mMax3DTextureLevel;
-    int  mMax2DArrayTextureLevel;
     int mNumCompressedTextureFormats;
 
     ResourceManager *mResourceManager;

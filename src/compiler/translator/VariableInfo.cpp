@@ -4,127 +4,112 @@
 // found in the LICENSE file.
 //
 
+#include "angle_gl.h"
 #include "compiler/translator/VariableInfo.h"
 #include "compiler/translator/util.h"
-#include "angle_gl.h"
-
-namespace {
-
-TString arrayBrackets(int index)
-{
-    TStringStream stream;
-    stream << "[" << index << "]";
-    return stream.str();
-}
+#include "common/utilities.h"
 
 template <typename VarT>
-void getBuiltInVariableInfo(const TType &type,
-                            const TString &name,
-                            const TString &mappedName,
-                            std::vector<VarT> &infoList);
-
-template <typename VarT>
-void getUserDefinedVariableInfo(const TType &type,
-                                const TString &name,
-                                const TString &mappedName,
-                                std::vector<VarT> &infoList,
-                                ShHashFunction64 hashFunction);
+static void ExpandUserDefinedVariable(const VarT &variable,
+                                      const std::string &name,
+                                      const std::string &mappedName,
+                                      bool markStaticUse,
+                                      std::vector<VarT> *expanded);
 
 // Returns info for an attribute, uniform, or varying.
 template <typename VarT>
-void getVariableInfo(const TType &type,
-                     const TString &name,
-                     const TString &mappedName,
-                     std::vector<VarT> &infoList,
-                     ShHashFunction64 hashFunction)
+static void ExpandVariable(const VarT &variable,
+                           const std::string &name,
+                           const std::string &mappedName,
+                           bool markStaticUse,
+                           std::vector<VarT> *expanded)
 {
-    if (type.getBasicType() == EbtStruct || type.isInterfaceBlock()) {
-        if (type.isArray()) {
-            for (int i = 0; i < type.getArraySize(); ++i) {
-                TString lname = name + arrayBrackets(i);
-                TString lmappedName = mappedName + arrayBrackets(i);
-                getUserDefinedVariableInfo(type, lname, lmappedName, infoList, hashFunction);
+    if (variable.isStruct())
+    {
+        if (variable.isArray())
+        {
+            for (size_t elementIndex = 0; elementIndex < variable.elementCount(); elementIndex++)
+            {
+                std::string lname = name + ArrayString(elementIndex);
+                std::string lmappedName = mappedName + ArrayString(elementIndex);
+                ExpandUserDefinedVariable(variable, lname, lmappedName, markStaticUse, expanded);
             }
-        } else {
-            getUserDefinedVariableInfo(type, name, mappedName, infoList, hashFunction);
         }
-    } else {
-        getBuiltInVariableInfo(type, name, mappedName, infoList);
+        else
+        {
+            ExpandUserDefinedVariable(variable, name, mappedName, markStaticUse, expanded);
+        }
+    }
+    else
+    {
+        VarT expandedVar = variable;
+
+        expandedVar.name = name;
+        expandedVar.mappedName = mappedName;
+
+        // Mark all expanded fields as used if the parent is used
+        if (markStaticUse)
+        {
+            expandedVar.staticUse = true;
+        }
+
+        if (expandedVar.isArray())
+        {
+            expandedVar.name += "[0]";
+            expandedVar.mappedName += "[0]";
+        }
+
+        expanded->push_back(expandedVar);
     }
 }
 
 template <class VarT>
-void getBuiltInVariableInfo(const TType &type,
-                            const TString &name,
-                            const TString &mappedName,
-                            std::vector<VarT> &infoList)
+static void ExpandUserDefinedVariable(const VarT &variable,
+                                      const std::string &name,
+                                      const std::string &mappedName,
+                                      bool markStaticUse,
+                                      std::vector<VarT> *expanded)
 {
-    ASSERT(type.getBasicType() != EbtStruct);
+    ASSERT(variable.isStruct());
 
-    VarT varInfo;
-    if (type.isArray()) {
-        varInfo.name = (name + "[0]").c_str();
-        varInfo.mappedName = (mappedName + "[0]").c_str();
-        varInfo.arraySize = type.getArraySize();
-    } else {
-        varInfo.name = name.c_str();
-        varInfo.mappedName = mappedName.c_str();
-        varInfo.arraySize = 0;
-    }
-    varInfo.precision = sh::GLVariablePrecision(type);
-    varInfo.type = sh::GLVariableType(type);
-    infoList.push_back(varInfo);
-}
+    const std::vector<VarT> &fields = variable.fields;
 
-template <class VarT>
-void getUserDefinedVariableInfo(const TType &type,
-                                const TString &name,
-                                const TString &mappedName,
-                                std::vector<VarT> &infoList,
-                                ShHashFunction64 hashFunction)
-{
-    ASSERT(type.getBasicType() == EbtStruct || type.isInterfaceBlock());
-
-    const TFieldList& fields = type.isInterfaceBlock() ?
-        type.getInterfaceBlock()->fields() :
-        type.getStruct()->fields();
-    for (size_t i = 0; i < fields.size(); ++i) {
-        const TType& fieldType = *(fields[i]->type());
-        const TString& fieldName = fields[i]->name();
-        getVariableInfo(fieldType,
-                        name + "." + fieldName,
-                        mappedName + "." + TIntermTraverser::hash(fieldName, hashFunction),
-                        infoList,
-                        hashFunction);
+    for (size_t fieldIndex = 0; fieldIndex < fields.size(); fieldIndex++)
+    {
+        const VarT &field = fields[fieldIndex];
+        ExpandVariable(field,
+                       name + "." + field.name,
+                       mappedName + "." + field.mappedName,
+                       markStaticUse,
+                       expanded);
     }
 }
 
 template <class VarT>
-VarT* findVariable(const TType &type,
-                   const TString &name,
-                   std::vector<VarT> *infoList)
+static VarT *FindVariable(const TString &name,
+                          std::vector<VarT> *infoList)
 {
     // TODO(zmo): optimize this function.
-    TString myName = name;
-    if (type.isArray())
-        myName += "[0]";
     for (size_t ii = 0; ii < infoList->size(); ++ii)
     {
-        if ((*infoList)[ii].name.c_str() == myName)
+        if ((*infoList)[ii].name.c_str() == name)
             return &((*infoList)[ii]);
     }
+
     return NULL;
 }
 
-}  // namespace anonymous
-
 CollectVariables::CollectVariables(std::vector<sh::Attribute> *attribs,
+                                   std::vector<sh::Attribute> *outputVariables,
                                    std::vector<sh::Uniform> *uniforms,
                                    std::vector<sh::Varying> *varyings,
+                                   std::vector<sh::InterfaceBlock> *interfaceBlocks,
                                    ShHashFunction64 hashFunction)
     : mAttribs(attribs),
+      mOutputVariables(outputVariables),
       mUniforms(uniforms),
       mVaryings(varyings),
+      mInterfaceBlocks(interfaceBlocks),
       mPointCoordAdded(false),
       mFrontFacingAdded(false),
       mFragCoordAdded(false),
@@ -137,65 +122,93 @@ CollectVariables::CollectVariables(std::vector<sh::Attribute> *attribs,
 // Also, gl_FragCoord, gl_PointCoord, and gl_FrontFacing count
 // toward varying counting if they are statically used in a fragment
 // shader.
-void CollectVariables::visitSymbol(TIntermSymbol* symbol)
+void CollectVariables::visitSymbol(TIntermSymbol *symbol)
 {
     ASSERT(symbol != NULL);
     sh::ShaderVariable *var = NULL;
-    switch (symbol->getQualifier())
+    const TString &symbolName = symbol->getSymbol();
+
+    if (sh::IsVarying(symbol->getQualifier()))
     {
-      case EvqVaryingOut:
-      case EvqInvariantVaryingOut:
-      case EvqVaryingIn:
-      case EvqInvariantVaryingIn:
-        var = findVariable(symbol->getType(), symbol->getSymbol(), mVaryings);
-        break;
-      case EvqUniform:
-        var = findVariable(symbol->getType(), symbol->getSymbol(), mUniforms);
-        break;
-      case EvqFragCoord:
-        if (!mFragCoordAdded)
+        var = FindVariable(symbolName, mVaryings);
+    }
+    else if (symbol->getType() != EbtInterfaceBlock)
+    {
+        switch (symbol->getQualifier())
         {
-            sh::Varying info;
-            info.name = "gl_FragCoord";
-            info.mappedName = "gl_FragCoord";
-            info.type = GL_FLOAT_VEC4;
-            info.arraySize = 0;
-            info.precision = GL_MEDIUM_FLOAT;  // Use mediump as it doesn't really matter.
-            info.staticUse = true;
-            mVaryings->push_back(info);
-            mFragCoordAdded = true;
+          case EvqAttribute:
+          case EvqVertexIn:
+            var = FindVariable(symbolName, mAttribs);
+            break;
+          case EvqFragmentOut:
+            var = FindVariable(symbolName, mOutputVariables);
+            break;
+          case EvqUniform:
+            {
+                const TInterfaceBlock *interfaceBlock = symbol->getType().getInterfaceBlock();
+                if (interfaceBlock)
+                {
+                    sh::InterfaceBlock *namedBlock = FindVariable(interfaceBlock->name(), mInterfaceBlocks);
+                    ASSERT(namedBlock);
+                    var = FindVariable(symbolName, &namedBlock->fields);
+
+                    // Set static use on the parent interface block here
+                    namedBlock->staticUse = true;
+                }
+                else
+                {
+                    var = FindVariable(symbolName, mUniforms);
+                }
+
+                // It's an internal error to reference an undefined user uniform
+                ASSERT(symbolName.compare(0, 3, "gl_") == 0 || var);
+            }
+            break;
+          case EvqFragCoord:
+            if (!mFragCoordAdded)
+            {
+                sh::Varying info;
+                info.name = "gl_FragCoord";
+                info.mappedName = "gl_FragCoord";
+                info.type = GL_FLOAT_VEC4;
+                info.arraySize = 0;
+                info.precision = GL_MEDIUM_FLOAT;  // Use mediump as it doesn't really matter.
+                info.staticUse = true;
+                mVaryings->push_back(info);
+                mFragCoordAdded = true;
+            }
+            return;
+          case EvqFrontFacing:
+            if (!mFrontFacingAdded)
+            {
+                sh::Varying info;
+                info.name = "gl_FrontFacing";
+                info.mappedName = "gl_FrontFacing";
+                info.type = GL_BOOL;
+                info.arraySize = 0;
+                info.precision = GL_NONE;
+                info.staticUse = true;
+                mVaryings->push_back(info);
+                mFrontFacingAdded = true;
+            }
+            return;
+          case EvqPointCoord:
+            if (!mPointCoordAdded)
+            {
+                sh::Varying info;
+                info.name = "gl_PointCoord";
+                info.mappedName = "gl_PointCoord";
+                info.type = GL_FLOAT_VEC2;
+                info.arraySize = 0;
+                info.precision = GL_MEDIUM_FLOAT;  // Use mediump as it doesn't really matter.
+                info.staticUse = true;
+                mVaryings->push_back(info);
+                mPointCoordAdded = true;
+            }
+            return;
+          default:
+            break;
         }
-        return;
-      case EvqFrontFacing:
-        if (!mFrontFacingAdded)
-        {
-            sh::Varying info;
-            info.name = "gl_FrontFacing";
-            info.mappedName = "gl_FrontFacing";
-            info.type = GL_BOOL;
-            info.arraySize = 0;
-            info.precision = GL_NONE;
-            info.staticUse = true;
-            mVaryings->push_back(info);
-            mFrontFacingAdded = true;
-        }
-        return;
-      case EvqPointCoord:
-        if (!mPointCoordAdded)
-        {
-            sh::Varying info;
-            info.name = "gl_PointCoord";
-            info.mappedName = "gl_PointCoord";
-            info.type = GL_FLOAT_VEC2;
-            info.arraySize = 0;
-            info.precision = GL_MEDIUM_FLOAT;  // Use mediump as it doesn't really matter.
-            info.staticUse = true;
-            mVaryings->push_back(info);
-            mPointCoordAdded = true;
-        }
-        return;
-      default:
-        break;
     }
     if (var)
     {
@@ -204,66 +217,159 @@ void CollectVariables::visitSymbol(TIntermSymbol* symbol)
 }
 
 template <typename VarT>
-void CollectVariables::visitInfoList(const TIntermSequence& sequence, std::vector<VarT> *infoList) const
+class NameHashingTraverser : public sh::GetVariableTraverser<VarT>
+{
+  public:
+    NameHashingTraverser(std::vector<VarT> *output, ShHashFunction64 hashFunction)
+        : sh::GetVariableTraverser<VarT>(output),
+          mHashFunction(hashFunction)
+    {}
+
+  private:
+    void visitVariable(VarT *variable)
+    {
+        TString stringName = TString(variable->name.c_str());
+        variable->mappedName = TIntermTraverser::hash(stringName, mHashFunction).c_str();
+    }
+
+    ShHashFunction64 mHashFunction;
+};
+
+// Attributes, which cannot have struct fields, are a special case
+template <>
+void CollectVariables::visitVariable(const TIntermSymbol *variable,
+                                     std::vector<sh::Attribute> *infoList) const
+{
+    ASSERT(variable);
+    const TType &type = variable->getType();
+    ASSERT(!type.getStruct());
+
+    sh::Attribute attribute;
+
+    attribute.type = sh::GLVariableType(type);
+    attribute.precision = sh::GLVariablePrecision(type);
+    attribute.name = variable->getSymbol().c_str();
+    attribute.arraySize = static_cast<unsigned int>(type.getArraySize());
+    attribute.mappedName = TIntermTraverser::hash(variable->getSymbol(), mHashFunction).c_str();
+    attribute.location = variable->getType().getLayoutQualifier().location;
+
+    infoList->push_back(attribute);
+}
+
+template <>
+void CollectVariables::visitVariable(const TIntermSymbol *variable,
+                                     std::vector<sh::InterfaceBlock> *infoList) const
+{
+    sh::InterfaceBlock interfaceBlock;
+    const TInterfaceBlock *blockType = variable->getType().getInterfaceBlock();
+
+    bool isRowMajor = (blockType->matrixPacking() == EmpRowMajor);
+
+    interfaceBlock.name = blockType->name().c_str();
+    interfaceBlock.mappedName = TIntermTraverser::hash(variable->getSymbol(), mHashFunction).c_str();
+    interfaceBlock.arraySize = variable->getArraySize();
+    interfaceBlock.isRowMajorLayout = isRowMajor;
+    interfaceBlock.layout = sh::GetBlockLayoutType(blockType->blockStorage());
+
+    ASSERT(blockType);
+    const TFieldList &blockFields = blockType->fields();
+
+    for (size_t fieldIndex = 0; fieldIndex < blockFields.size(); fieldIndex++)
+    {
+        const TField *field = blockFields[fieldIndex];
+        ASSERT(field);
+
+        sh::GetInterfaceBlockFieldTraverser traverser(&interfaceBlock.fields, isRowMajor);
+        traverser.traverse(*field->type(), field->name());
+    }
+
+    infoList->push_back(interfaceBlock);
+}
+
+template <typename VarT>
+void CollectVariables::visitVariable(const TIntermSymbol *variable,
+                                     std::vector<VarT> *infoList) const
+{
+    NameHashingTraverser<VarT> traverser(infoList, mHashFunction);
+    traverser.traverse(variable->getType(), variable->getSymbol());
+}
+
+template <typename VarT>
+void CollectVariables::visitInfoList(const TIntermSequence &sequence,
+                                     std::vector<VarT> *infoList) const
 {
     for (size_t seqIndex = 0; seqIndex < sequence.size(); seqIndex++)
     {
-        const TIntermSymbol* variable = sequence[seqIndex]->getAsSymbolNode();
+        const TIntermSymbol *variable = sequence[seqIndex]->getAsSymbolNode();
         // The only case in which the sequence will not contain a
         // TIntermSymbol node is initialization. It will contain a
         // TInterBinary node in that case. Since attributes, uniforms,
         // and varyings cannot be initialized in a shader, we must have
         // only TIntermSymbol nodes in the sequence.
         ASSERT(variable != NULL);
-        TString processedSymbol;
-        if (mHashFunction == NULL)
-            processedSymbol = variable->getSymbol();
-        else
-            processedSymbol = TIntermTraverser::hash(variable->getSymbol(), mHashFunction);
-        getVariableInfo(variable->getType(),
-            variable->getSymbol(),
-            processedSymbol,
-            *infoList,
-            mHashFunction);
+        visitVariable(variable, infoList);
     }
 }
 
-bool CollectVariables::visitAggregate(Visit, TIntermAggregate* node)
+bool CollectVariables::visitAggregate(Visit, TIntermAggregate *node)
 {
     bool visitChildren = true;
 
     switch (node->getOp())
     {
-    case EOpDeclaration: {
-        const TIntermSequence& sequence = node->getSequence();
-        TQualifier qualifier = sequence.front()->getAsTyped()->getQualifier();
-        if (qualifier == EvqAttribute || qualifier == EvqVertexIn || qualifier == EvqUniform ||
-            qualifier == EvqVaryingIn || qualifier == EvqVaryingOut ||
-            qualifier == EvqInvariantVaryingIn || qualifier == EvqInvariantVaryingOut)
+      case EOpDeclaration:
         {
-            switch (qualifier)
-            {
-              case EvqAttribute:
-              case EvqVertexIn:
-                visitInfoList(sequence, mAttribs);
-                break;
-              case EvqUniform:
-                visitInfoList(sequence, mUniforms);
-                break;
-              default:
-                visitInfoList(sequence, mVaryings);
-                break;
-            }
+            const TIntermSequence &sequence = node->getSequence();
+            const TIntermTyped &typedNode = *sequence.front()->getAsTyped();
+            TQualifier qualifier = typedNode.getQualifier();
 
-            if (!sequence.empty())
+            if (typedNode.getBasicType() == EbtInterfaceBlock)
             {
-                visitChildren = false;
+                visitInfoList(sequence, mInterfaceBlocks);
             }
+            else if (qualifier == EvqAttribute || qualifier == EvqVertexIn ||
+                     qualifier == EvqFragmentOut || qualifier == EvqUniform ||
+                     sh::IsVarying(qualifier))
+            {
+                switch (qualifier)
+                {
+                  case EvqAttribute:
+                  case EvqVertexIn:
+                    visitInfoList(sequence, mAttribs);
+                    break;
+                  case EvqFragmentOut:
+                    visitInfoList(sequence, mOutputVariables);
+                    break;
+                  case EvqUniform:
+                    visitInfoList(sequence, mUniforms);
+                    break;
+                  default:
+                    visitInfoList(sequence, mVaryings);
+                    break;
+                }
+
+                if (!sequence.empty())
+                {
+                    visitChildren = false;
+                }
+            }
+            break;
         }
-        break;
-    }
-    default: break;
+      default: break;
     }
 
     return visitChildren;
 }
+
+template <typename VarT>
+void ExpandVariables(const std::vector<VarT> &compact, std::vector<VarT> *expanded)
+{
+    for (size_t variableIndex = 0; variableIndex < compact.size(); variableIndex++)
+    {
+        const VarT &variable = compact[variableIndex];
+        ExpandVariable(variable, variable.name, variable.mappedName, variable.staticUse, expanded);
+    }
+}
+
+template void ExpandVariables(const std::vector<sh::Uniform> &, std::vector<sh::Uniform> *);
+template void ExpandVariables(const std::vector<sh::Varying> &, std::vector<sh::Varying> *);

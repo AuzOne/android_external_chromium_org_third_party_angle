@@ -26,6 +26,7 @@ bool ValidCompressedImageSize(const gl::Context *context, GLenum internalFormat,
 bool ValidQueryType(const gl::Context *context, GLenum queryType);
 bool ValidProgram(const gl::Context *context, GLuint id);
 
+bool ValidateAttachmentTarget(const gl::Context *context, GLenum attachment);
 bool ValidateRenderbufferStorageParameters(const gl::Context *context, GLenum target, GLsizei samples,
                                            GLenum internalformat, GLsizei width, GLsizei height,
                                            bool angleExtension);
@@ -63,6 +64,11 @@ bool ValidateDrawArraysInstanced(const gl::Context *context, GLenum mode, GLint 
 bool ValidateDrawElements(const gl::Context *context, GLenum mode, GLsizei count, GLenum type, const GLvoid* indices);
 bool ValidateDrawElementsInstanced(const gl::Context *context, GLenum mode, GLsizei count, GLenum type,
                                    const GLvoid *indices, GLsizei primcount);
+
+bool ValidateFramebufferTextureBase(const gl::Context *context, GLenum target, GLenum attachment,
+                                    GLuint texture, GLint level);
+bool ValidateFramebufferTexture2D(const gl::Context *context, GLenum target, GLenum attachment,
+                                  GLenum textarget, GLuint texture, GLint level);
 
 }
 

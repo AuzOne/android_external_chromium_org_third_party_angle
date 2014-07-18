@@ -82,16 +82,16 @@ bool Display::initialize()
 
     EGLint minSwapInterval = mRenderer->getMinSwapInterval();
     EGLint maxSwapInterval = mRenderer->getMaxSwapInterval();
-    EGLint maxTextureWidth = mRenderer->getMaxTextureWidth();
-    EGLint maxTextureHeight = mRenderer->getMaxTextureHeight();
+    EGLint maxTextureSize = mRenderer->getRendererCaps().max2DTextureSize;
 
     rx::ConfigDesc *descList;
     int numConfigs = mRenderer->generateConfigs(&descList);
     ConfigSet configSet;
 
     for (int i = 0; i < numConfigs; ++i)
-        configSet.add(descList[i], minSwapInterval, maxSwapInterval,
-                      maxTextureWidth, maxTextureHeight);
+    {
+        configSet.add(descList[i], minSwapInterval, maxSwapInterval, maxTextureSize, maxTextureSize);
+    }
 
     // Give the sorted configs a unique ID and store them internally
     EGLint index = 1;
@@ -344,7 +344,7 @@ EGLSurface Display::createOffscreenSurface(EGLConfig config, HANDLE shareHandle,
         return error(EGL_BAD_ATTRIBUTE, EGL_NO_SURFACE);
     }
 
-    if (textureFormat != EGL_NO_TEXTURE && !mRenderer->getCaps().extensions.textureNPOT && (!gl::isPow2(width) || !gl::isPow2(height)))
+    if (textureFormat != EGL_NO_TEXTURE && !mRenderer->getRendererExtensions().textureNPOT && (!gl::isPow2(width) || !gl::isPow2(height)))
     {
         return error(EGL_BAD_MATCH, EGL_NO_SURFACE);
     }

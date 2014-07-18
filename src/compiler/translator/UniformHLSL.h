@@ -32,6 +32,10 @@ class UniformHLSL
 
     const std::vector<Uniform> &getUniforms() const { return mActiveUniforms; }
     const std::vector<InterfaceBlock> &getInterfaceBlocks() const { return mActiveInterfaceBlocks; }
+    const std::map<std::string, unsigned int> &getInterfaceBlockRegisterMap() const
+    {
+        return mInterfaceBlockRegisterMap;
+    }
 
   private:
     TString interfaceBlockString(const TInterfaceBlock &interfaceBlock, unsigned int registerIndex, unsigned int arrayIndex);
@@ -40,8 +44,7 @@ class UniformHLSL
 
     // Returns the uniform's register index
     int declareUniformAndAssignRegister(const TType &type, const TString &name);
-    void declareInterfaceBlockField(const TType &type, const TString &name, std::vector<InterfaceBlockField>& output);
-    Uniform declareUniformToList(const TType &type, const TString &name, int registerIndex, std::vector<Uniform> *output);
+    void declareUniformToList(const TType &type, const TString &name, int registerIndex, std::vector<Uniform> *output);
 
     unsigned int mUniformRegister;
     unsigned int mInterfaceBlockRegister;
@@ -51,6 +54,7 @@ class UniformHLSL
 
     std::vector<Uniform> mActiveUniforms;
     std::vector<InterfaceBlock> mActiveInterfaceBlocks;
+    std::map<std::string, unsigned int> mInterfaceBlockRegisterMap;
 };
 
 }
