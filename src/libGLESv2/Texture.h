@@ -13,13 +13,11 @@
 
 #include <vector>
 
-#include <GLES3/gl3.h>
-#include <GLES2/gl2.h>
+#include "angle_gl.h"
 
 #include "common/debug.h"
 #include "common/RefCountObject.h"
 #include "libGLESv2/angletypes.h"
-#include "libGLESv2/RenderbufferProxySet.h"
 
 namespace egl
 {
@@ -65,45 +63,13 @@ class Texture : public RefCountObject
 
     virtual ~Texture();
 
-    void addProxyRef(const FramebufferAttachment *proxy);
-    void releaseProxy(const FramebufferAttachment *proxy);
-
     GLenum getTarget() const;
 
-    void setMinFilter(GLenum filter);
-    void setMagFilter(GLenum filter);
-    void setWrapS(GLenum wrap);
-    void setWrapT(GLenum wrap);
-    void setWrapR(GLenum wrap);
-    void setMaxAnisotropy(float textureMaxAnisotropy, float contextMaxAnisotropy);
-    void setCompareMode(GLenum mode);
-    void setCompareFunc(GLenum func);
-    void setSwizzleRed(GLenum swizzle);
-    void setSwizzleGreen(GLenum swizzle);
-    void setSwizzleBlue(GLenum swizzle);
-    void setSwizzleAlpha(GLenum swizzle);
-    void setBaseLevel(GLint baseLevel);
-    void setMaxLevel(GLint maxLevel);
-    void setMinLod(GLfloat minLod);
-    void setMaxLod(GLfloat maxLod);
-    void setUsage(GLenum usage);
+    const SamplerState &getSamplerState() const { return mSamplerState; }
+    SamplerState &getSamplerState() { return mSamplerState; }
+    void getSamplerStateWithNativeOffset(SamplerState *sampler);
 
-    GLenum getMinFilter() const;
-    GLenum getMagFilter() const;
-    GLenum getWrapS() const;
-    GLenum getWrapT() const;
-    GLenum getWrapR() const;
-    float getMaxAnisotropy() const;
-    GLenum getSwizzleRed() const;
-    GLenum getSwizzleGreen() const;
-    GLenum getSwizzleBlue() const;
-    GLenum getSwizzleAlpha() const;
-    GLint getBaseLevel() const;
-    GLint getMaxLevel() const;
-    GLfloat getMinLod() const;
-    GLfloat getMaxLod() const;
-    bool isSwizzled() const;
-    void getSamplerState(SamplerState *sampler);
+    void setUsage(GLenum usage);
     GLenum getUsage() const;
 
     GLint getBaseLevelWidth() const;
@@ -157,13 +123,6 @@ class Texture : public RefCountObject
 
     GLenum mTarget;
 
-    // A specific internal reference count is kept for colorbuffer proxy references,
-    // because, as the renderbuffer acting as proxy will maintain a binding pointer
-    // back to this texture, there would be a circular reference if we used a binding
-    // pointer here. This reference count will cause the pointer to be set to NULL if
-    // the count drops to zero, but will not cause deletion of the FramebufferAttachment.
-    RenderbufferProxySet mRenderbufferProxies;
-
   private:
     DISALLOW_COPY_AND_ASSIGN(Texture);
 
@@ -199,7 +158,6 @@ class Texture2D : public Texture
 
     virtual void generateMipmaps();
 
-    FramebufferAttachment *getAttachment(GLint level);
     unsigned int getRenderTargetSerial(GLint level);
 
   protected:
@@ -267,7 +225,6 @@ class TextureCubeMap : public Texture
 
     virtual void generateMipmaps();
 
-    FramebufferAttachment *getAttachment(GLenum target, GLint level);
     unsigned int getRenderTargetSerial(GLenum target, GLint level);
 
     static int targetToIndex(GLenum target);
@@ -330,7 +287,6 @@ class Texture3D : public Texture
     virtual bool isSamplerComplete(const SamplerState &samplerState) const;
     virtual bool isMipmapComplete() const;
 
-    FramebufferAttachment *getAttachment(GLint level, GLint layer);
     unsigned int getRenderTargetSerial(GLint level, GLint layer);
 
   protected:
@@ -391,7 +347,6 @@ class Texture2DArray : public Texture
     virtual bool isSamplerComplete(const SamplerState &samplerState) const;
     virtual bool isMipmapComplete() const;
 
-    FramebufferAttachment *getAttachment(GLint level, GLint layer);
     unsigned int getRenderTargetSerial(GLint level, GLint layer);
 
   protected:

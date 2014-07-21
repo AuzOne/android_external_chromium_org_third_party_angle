@@ -37,8 +37,8 @@
                     [
                         '<!@(python <(angle_path)/enumerate_files.py \
                              -dirs common libGLESv2 third_party/murmurhash ../include third_party/systeminfo \
-                             -types *.cpp *.h *.hlsl *.vs *.ps *.bat *.def *.rc \
-                             -excludes */d3d/* */d3d9/* */d3d11/*)',
+                             -types *.cpp *.h *.inl *.hlsl *.vs *.ps *.bat *.def *.rc \
+                             -excludes */d3d/*)',
                     ],
                     'defines':
                     [
@@ -53,8 +53,8 @@
                             'sources':
                             [
                                 '<!@(python <(angle_path)/enumerate_files.py \
-                                     -dirs libGLESv2/renderer/d3d libGLESv2/renderer/d3d9 \
-                                     -types *.cpp *.h *.vs *.ps *.bat)',
+                                     -dirs libGLESv2/renderer/d3d libGLESv2/renderer/d3d/d3d9 \
+                                     -types *.cpp *.h *.inl *.vs *.ps *.bat)',
                             ],
                             'defines':
                             [
@@ -76,8 +76,8 @@
                             'sources':
                             [
                                 '<!@(python <(angle_path)/enumerate_files.py \
-                                     -dirs libGLESv2/renderer/d3d libGLESv2/renderer/d3d11 \
-                                     -types *.cpp *.h *.hlsl *.bat)',
+                                     -dirs libGLESv2/renderer/d3d libGLESv2/renderer/d3d/d3d/d3d11 \
+                                     -types *.cpp *.h *.inl *.hlsl *.bat)',
                             ],
                             'defines':
                             [

@@ -16,13 +16,14 @@
 #include "libGLESv2/Buffer.h"
 #include "libGLESv2/Fence.h"
 #include "libGLESv2/Framebuffer.h"
+#include "libGLESv2/FramebufferAttachment.h"
 #include "libGLESv2/Renderbuffer.h"
 #include "libGLESv2/Program.h"
 #include "libGLESv2/ProgramBinary.h"
 #include "libGLESv2/Query.h"
 #include "libGLESv2/Texture.h"
 #include "libGLESv2/ResourceManager.h"
-#include "libGLESv2/renderer/IndexDataManager.h"
+#include "libGLESv2/renderer/d3d/IndexDataManager.h"
 #include "libGLESv2/renderer/RenderTarget.h"
 #include "libGLESv2/renderer/Renderer.h"
 #include "libGLESv2/VertexArray.h"
@@ -37,15 +38,6 @@
 
 namespace gl
 {
-static const char* makeStaticString(const std::string& str)
-{
-    static std::set<std::string> strings;
-    std::set<std::string>::iterator it = strings.find(str);
-    if (it != strings.end())
-      return it->c_str();
-
-    return strings.insert(str).first->c_str();
-}
 
 Context::Context(int clientVersion, const gl::Context *shareContext, rx::Renderer *renderer, bool notifyResets, bool robustAccess) : mRenderer(renderer)
 {
@@ -54,6 +46,10 @@ Context::Context(int clientVersion, const gl::Context *shareContext, rx::Rendere
     mFenceNVHandleAllocator.setBaseHandle(0);
 
     setClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+
+    mCaps = mRenderer->getRendererCaps();
+    mTextureCaps = mRenderer->getRendererTextureCaps();
+    mExtensions = mRenderer->getRendererExtensions();
 
     mClientVersion = clientVersion;
 
@@ -203,9 +199,6 @@ Context::Context(int clientVersion, const gl::Context *shareContext, rx::Rendere
     mState.currentProgram = 0;
     mCurrentProgramBinary.set(NULL);
 
-    mCombinedExtensionsString = NULL;
-    mRendererString = NULL;
-
     mInvalidEnum = false;
     mInvalidValue = false;
     mInvalidOperation = false;
@@ -218,12 +211,6 @@ Context::Context(int clientVersion, const gl::Context *shareContext, rx::Rendere
     mResetStrategy = (notifyResets ? GL_LOSE_CONTEXT_ON_RESET_EXT : GL_NO_RESET_NOTIFICATION_EXT);
     mRobustAccess = robustAccess;
 
-    mSupportsBGRATextures = false;
-    mSupportsDXT1Textures = false;
-    mSupportsDXT3Textures = false;
-    mSupportsDXT5Textures = false;
-    mSupportsEventQueries = false;
-    mSupportsOcclusionQueries = false;
     mNumCompressedTextureFormats = 0;
 }
 
@@ -326,67 +313,24 @@ void Context::makeCurrent(egl::Surface *surface)
     if (!mHasBeenCurrent)
     {
         mMajorShaderModel = mRenderer->getMajorShaderModel();
-        mMaximumPointSize = mRenderer->getMaxPointSize();
         mSupportsVertexTexture = mRenderer->getVertexTextureSupport();
-        mSupportsNonPower2Texture = mRenderer->getNonPower2TextureSupport();
-        mSupportsInstancing = mRenderer->getInstancingSupport();
-
-        mMaxViewportDimension = mRenderer->getMaxViewportDimension();
-        mMax2DTextureDimension = std::min(std::min(mRenderer->getMaxTextureWidth(), mRenderer->getMaxTextureHeight()),
-                                          (int)gl::IMPLEMENTATION_MAX_2D_TEXTURE_SIZE);
-        mMaxCubeTextureDimension = std::min(mMax2DTextureDimension, (int)gl::IMPLEMENTATION_MAX_CUBE_MAP_TEXTURE_SIZE);
-        mMax3DTextureDimension = std::min(std::min(mMax2DTextureDimension, mRenderer->getMaxTextureDepth()),
-                                          (int)gl::IMPLEMENTATION_MAX_3D_TEXTURE_SIZE);
-        mMax2DArrayTextureLayers = mRenderer->getMaxTextureArrayLayers();
-        mMaxRenderbufferDimension = mMax2DTextureDimension;
-        mMax2DTextureLevel = log2(mMax2DTextureDimension) + 1;
-        mMaxCubeTextureLevel = log2(mMaxCubeTextureDimension) + 1;
-        mMax3DTextureLevel = log2(mMax3DTextureDimension) + 1;
-        mMax2DArrayTextureLevel = log2(mMax2DTextureDimension) + 1;
-        mMaxTextureAnisotropy = mRenderer->getTextureMaxAnisotropy();
-        TRACE("Max2DTextureDimension=%d, MaxCubeTextureDimension=%d, Max3DTextureDimension=%d, Max2DArrayTextureLayers = %d, "
-              "Max2DTextureLevel=%d, MaxCubeTextureLevel=%d, Max3DTextureLevel=%d, Max2DArrayTextureLevel=%d, "
-              "MaxRenderbufferDimension=%d, MaxTextureAnisotropy=%f",
-              mMax2DTextureDimension, mMaxCubeTextureDimension, mMax3DTextureDimension, mMax2DArrayTextureLayers,
-              mMax2DTextureLevel, mMaxCubeTextureLevel, mMax3DTextureLevel, mMax2DArrayTextureLevel,
-              mMaxRenderbufferDimension, mMaxTextureAnisotropy);
-
-        mSupportsEventQueries = mRenderer->getEventQuerySupport();
-        mSupportsOcclusionQueries = mRenderer->getOcclusionQuerySupport();
-        mSupportsBGRATextures = mRenderer->getBGRATextureSupport();
-        mSupportsDXT1Textures = mRenderer->getDXT1TextureSupport();
-        mSupportsDXT3Textures = mRenderer->getDXT3TextureSupport();
-        mSupportsDXT5Textures = mRenderer->getDXT5TextureSupport();
-        mSupportsFloat32Textures = mRenderer->getFloat32TextureSupport();
-        mSupportsFloat32LinearFilter = mRenderer->getFloat32TextureFilteringSupport();
-        mSupportsFloat32RenderableTextures = mRenderer->getFloat32TextureRenderingSupport();
-        mSupportsFloat16Textures = mRenderer->getFloat16TextureSupport();
-        mSupportsFloat16LinearFilter = mRenderer->getFloat16TextureFilteringSupport();
-        mSupportsFloat16RenderableTextures = mRenderer->getFloat16TextureRenderingSupport();
-        mSupportsLuminanceTextures = mRenderer->getLuminanceTextureSupport();
-        mSupportsLuminanceAlphaTextures = mRenderer->getLuminanceAlphaTextureSupport();
-        mSupportsRGTextures = mRenderer->getRGTextureSupport();
-        mSupportsDepthTextures = mRenderer->getDepthTextureSupport();
-        mSupportsTextureFilterAnisotropy = mRenderer->getTextureFilterAnisotropySupport();
-        mSupports32bitIndices = mRenderer->get32BitIndexSupport();
-        mSupportsPBOs = mRenderer->getPBOSupport();
 
         mNumCompressedTextureFormats = 0;
-        if (supportsDXT1Textures())
+        if (mExtensions.textureCompressionDXT1)
         {
             mNumCompressedTextureFormats += 2;
         }
-        if (supportsDXT3Textures())
+        if (mExtensions.textureCompressionDXT3)
         {
             mNumCompressedTextureFormats += 1;
         }
-        if (supportsDXT5Textures())
+        if (mExtensions.textureCompressionDXT5)
         {
             mNumCompressedTextureFormats += 1;
         }
 
-        initExtensionString();
         initRendererString();
+        initExtensionStrings();
 
         mState.viewport.x = 0;
         mState.viewport.y = 0;
@@ -614,6 +558,21 @@ void Context::setStencilBackOperations(GLenum stencilBackFail, GLenum stencilBac
     mState.depthStencil.stencilBackPassDepthPass = stencilBackPassDepthPass;
 }
 
+const gl::DepthStencilState &Context::getDepthStencilState() const
+{
+    return mState.depthStencil;
+}
+
+GLint Context::getStencilRef() const
+{
+    return mState.stencilRef;
+}
+
+GLint Context::getStencilBackRef() const
+{
+    return mState.stencilBackRef;
+}
+
 void Context::setPolygonOffsetFill(bool enabled)
 {
      mState.rasterizer.polygonOffsetFill = enabled;
@@ -825,7 +784,7 @@ void Context::setVertexAttribState(unsigned int attribNum, Buffer *boundBuffer, 
 
 const void *Context::getVertexAttribPointer(unsigned int attribNum) const
 {
-    return getCurrentVertexArray()->getVertexAttribute(attribNum).mPointer;
+    return getCurrentVertexArray()->getVertexAttribute(attribNum).pointer;
 }
 
 void Context::setPackAlignment(GLint alignment)
@@ -912,7 +871,7 @@ GLuint Context::createVertexArray()
     // Although the spec states VAO state is not initialized until the object is bound,
     // we create it immediately. The resulting behaviour is transparent to the application,
     // since it's not currently possible to access the state until the object is bound.
-    mVertexArrayMap[handle] = new VertexArray(mRenderer, handle);
+    mVertexArrayMap[handle] = new VertexArray(mRenderer->createVertexArray(), handle, MAX_VERTEX_ATTRIBS);
 
     return handle;
 }
@@ -1100,12 +1059,12 @@ Program *Context::getProgram(GLuint handle) const
     return mResourceManager->getProgram(handle);
 }
 
-Texture *Context::getTexture(GLuint handle)
+Texture *Context::getTexture(GLuint handle) const
 {
     return mResourceManager->getTexture(handle);
 }
 
-FramebufferAttachment *Context::getRenderbuffer(GLuint handle)
+Renderbuffer *Context::getRenderbuffer(GLuint handle)
 {
     return mResourceManager->getRenderbuffer(handle);
 }
@@ -1147,12 +1106,17 @@ TransformFeedback *Context::getTransformFeedback(GLuint handle) const
     }
 }
 
-Framebuffer *Context::getReadFramebuffer()
+Framebuffer *Context::getReadFramebuffer() const
 {
     return getFramebuffer(mState.readFramebuffer);
 }
 
 Framebuffer *Context::getDrawFramebuffer()
+{
+    return mBoundDrawFramebuffer;
+}
+
+const Framebuffer *Context::getDrawFramebuffer() const
 {
     return mBoundDrawFramebuffer;
 }
@@ -1249,7 +1213,7 @@ void Context::bindVertexArray(GLuint vertexArray)
 {
     if (!getVertexArray(vertexArray))
     {
-        mVertexArrayMap[vertexArray] = new VertexArray(mRenderer, vertexArray);
+        mVertexArrayMap[vertexArray] = new VertexArray(mRenderer->createVertexArray(), vertexArray, MAX_VERTEX_ATTRIBS);
     }
 
     mState.vertexArray = vertexArray;
@@ -1372,6 +1336,11 @@ void Context::setProgramBinary(GLuint program, const void *binary, GLint length)
 
 }
 
+GLuint Context::getCurrentProgram() const
+{
+    return mState.currentProgram;
+}
+
 void Context::bindTransformFeedback(GLuint transformFeedback)
 {
     TransformFeedback *transformFeedbackObject = getTransformFeedback(transformFeedback);
@@ -1412,25 +1381,23 @@ void Context::setFramebufferZero(Framebuffer *buffer)
 
 void Context::setRenderbufferStorage(GLsizei width, GLsizei height, GLenum internalformat, GLsizei samples)
 {
-    const bool color = gl::IsColorRenderingSupported(internalformat, this);
-    const bool depth = gl::IsDepthRenderingSupported(internalformat, this);
-    const bool stencil = gl::IsStencilRenderingSupported(internalformat, this);
+    const TextureCaps &formatCaps = getTextureCaps().get(internalformat);
 
     RenderbufferStorage *renderbuffer = NULL;
 
-    if (color)
+    if (formatCaps.colorRendering)
     {
         renderbuffer = new gl::Colorbuffer(mRenderer,width, height, internalformat, samples);
     }
-    else if (depth && stencil)
+    else if (formatCaps.depthRendering && formatCaps.stencilRendering)
     {
         renderbuffer = new gl::DepthStencilbuffer(mRenderer, width, height, samples);
     }
-    else if (depth)
+    else if (formatCaps.depthRendering)
     {
         renderbuffer = new gl::Depthbuffer(mRenderer, width, height, samples);
     }
-    else if (stencil)
+    else if (formatCaps.stencilRendering)
     {
         renderbuffer = new gl::Stencilbuffer(mRenderer, width, height, samples);
     }
@@ -1440,7 +1407,7 @@ void Context::setRenderbufferStorage(GLsizei width, GLsizei height, GLenum inter
         return;
     }
 
-    FramebufferAttachment *renderbufferObject = mState.renderbuffer.get();
+    Renderbuffer *renderbufferObject = mState.renderbuffer.get();
     renderbufferObject->setStorage(renderbuffer);
 }
 
@@ -1517,7 +1484,7 @@ Buffer *Context::getElementArrayBuffer() const
     return getCurrentVertexArray()->getElementArrayBuffer();
 }
 
-ProgramBinary *Context::getCurrentProgramBinary()
+ProgramBinary *Context::getCurrentProgramBinary() const
 {
     return mCurrentProgramBinary.get();
 }
@@ -1676,12 +1643,12 @@ void Context::getFloatv(GLenum pname, GLfloat *params)
       case GL_POLYGON_OFFSET_FACTOR:    *params = mState.rasterizer.polygonOffsetFactor;    break;
       case GL_POLYGON_OFFSET_UNITS:     *params = mState.rasterizer.polygonOffsetUnits;     break;
       case GL_ALIASED_LINE_WIDTH_RANGE:
-        params[0] = gl::ALIASED_LINE_WIDTH_RANGE_MIN;
-        params[1] = gl::ALIASED_LINE_WIDTH_RANGE_MAX;
+        params[0] = mCaps.minAliasedLineWidth;
+        params[1] = mCaps.maxAliasedLineWidth;
         break;
       case GL_ALIASED_POINT_SIZE_RANGE:
-        params[0] = gl::ALIASED_POINT_SIZE_RANGE_MIN;
-        params[1] = getMaximumPointSize();
+        params[0] = mCaps.minAliasedPointSize;
+        params[1] = mCaps.maxAliasedPointSize;
         break;
       case GL_DEPTH_RANGE:
         params[0] = mState.zNear;
@@ -1700,8 +1667,8 @@ void Context::getFloatv(GLenum pname, GLfloat *params)
         params[3] = mState.blendColor.alpha;
         break;
       case GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT:
-        ASSERT(supportsTextureFilterAnisotropy());
-        *params = mMaxTextureAnisotropy;
+        ASSERT(mExtensions.textureFilterAnisotropic);
+        *params = mExtensions.maxTextureAnisotropy;
         break;
       default:
         UNREACHABLE();
@@ -1714,7 +1681,7 @@ void Context::getIntegerv(GLenum pname, GLint *params)
     if (pname >= GL_DRAW_BUFFER0_EXT && pname <= GL_DRAW_BUFFER15_EXT)
     {
         unsigned int colorAttachment = (pname - GL_DRAW_BUFFER0_EXT);
-        ASSERT(colorAttachment < mRenderer->getMaxRenderTargets());
+        ASSERT(colorAttachment < mCaps.maxDrawBuffers);
         Framebuffer *framebuffer = getDrawFramebuffer();
         *params = framebuffer->getDrawBufferState(colorAttachment);
         return;
@@ -1737,9 +1704,9 @@ void Context::getIntegerv(GLenum pname, GLint *params)
       case GL_MAX_TEXTURE_IMAGE_UNITS:                  *params = gl::MAX_TEXTURE_IMAGE_UNITS;                          break;
       case GL_MAX_FRAGMENT_UNIFORM_VECTORS:             *params = mRenderer->getMaxFragmentUniformVectors();            break;
       case GL_MAX_FRAGMENT_UNIFORM_COMPONENTS:          *params = mRenderer->getMaxFragmentUniformVectors() * 4;        break;
-      case GL_MAX_RENDERBUFFER_SIZE:                    *params = getMaximumRenderbufferDimension();                    break;
-      case GL_MAX_COLOR_ATTACHMENTS_EXT:                *params = mRenderer->getMaxRenderTargets();                     break;
-      case GL_MAX_DRAW_BUFFERS_EXT:                     *params = mRenderer->getMaxRenderTargets();                     break;
+      case GL_MAX_RENDERBUFFER_SIZE:                    *params = mCaps.maxRenderbufferSize;                            break;
+      case GL_MAX_COLOR_ATTACHMENTS_EXT:                *params = mCaps.maxColorAttachments;                            break;
+      case GL_MAX_DRAW_BUFFERS_EXT:                     *params = mCaps.maxDrawBuffers;                                 break;
       case GL_NUM_SHADER_BINARY_FORMATS:                *params = 0;                                                    break;
       case GL_SHADER_BINARY_FORMATS:                    /* no shader binary formats are supported */                    break;
       case GL_ARRAY_BUFFER_BINDING:                     *params = mState.arrayBuffer.id();                              break;
@@ -1779,10 +1746,10 @@ void Context::getIntegerv(GLenum pname, GLint *params)
       case GL_STENCIL_BACK_WRITEMASK:                   *params = clampToInt(mState.depthStencil.stencilBackWritemask); break;
       case GL_STENCIL_CLEAR_VALUE:                      *params = mState.stencilClearValue;                             break;
       case GL_SUBPIXEL_BITS:                            *params = 4;                                                    break;
-      case GL_MAX_TEXTURE_SIZE:                         *params = getMaximum2DTextureDimension();                       break;
-      case GL_MAX_CUBE_MAP_TEXTURE_SIZE:                *params = getMaximumCubeTextureDimension();                     break;
-      case GL_MAX_3D_TEXTURE_SIZE:                      *params = getMaximum3DTextureDimension();                       break;
-      case GL_MAX_ARRAY_TEXTURE_LAYERS:                 *params = getMaximum2DArrayTextureLayers();                     break;
+      case GL_MAX_TEXTURE_SIZE:                         *params = mCaps.max2DTextureSize;                               break;
+      case GL_MAX_CUBE_MAP_TEXTURE_SIZE:                *params = mCaps.maxCubeMapTextureSize;                          break;
+      case GL_MAX_3D_TEXTURE_SIZE:                      *params = mCaps.max3DTextureSize;                               break;
+      case GL_MAX_ARRAY_TEXTURE_LAYERS:                 *params = mCaps.maxArrayTextureLayers;                          break;
       case GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT:          *params = getUniformBufferOffsetAlignment();                    break;
       case GL_MAX_UNIFORM_BUFFER_BINDINGS:              *params = getMaximumCombinedUniformBufferBindings();            break;
       case GL_MAX_VERTEX_UNIFORM_BLOCKS:                *params = mRenderer->getMaxVertexShaderUniformBuffers();        break;
@@ -1843,22 +1810,22 @@ void Context::getIntegerv(GLenum pname, GLint *params)
         break;
       case GL_MAX_VIEWPORT_DIMS:
         {
-            params[0] = mMaxViewportDimension;
-            params[1] = mMaxViewportDimension;
+            params[0] = mCaps.maxViewportWidth;
+            params[1] = mCaps.maxViewportHeight;
         }
         break;
       case GL_COMPRESSED_TEXTURE_FORMATS:
         {
-            if (supportsDXT1Textures())
+            if (mExtensions.textureCompressionDXT1)
             {
                 *params++ = GL_COMPRESSED_RGB_S3TC_DXT1_EXT;
                 *params++ = GL_COMPRESSED_RGBA_S3TC_DXT1_EXT;
             }
-            if (supportsDXT3Textures())
+            if (mExtensions.textureCompressionDXT3)
             {
                 *params++ = GL_COMPRESSED_RGBA_S3TC_DXT3_ANGLE;
             }
-            if (supportsDXT5Textures())
+            if (mExtensions.textureCompressionDXT5)
             {
                 *params++ = GL_COMPRESSED_RGBA_S3TC_DXT5_ANGLE;
             }
@@ -1976,7 +1943,7 @@ void Context::getIntegerv(GLenum pname, GLint *params)
         *params = mState.unpack.pixelBuffer.id();
         break;
       case GL_NUM_EXTENSIONS:
-        *params = static_cast<GLint>(getNumExtensions());
+        *params = static_cast<GLint>(mExtensionStrings.size());
         break;
       default:
         UNREACHABLE();
@@ -1989,7 +1956,7 @@ void Context::getInteger64v(GLenum pname, GLint64 *params)
     switch (pname)
     {
       case GL_MAX_ELEMENT_INDEX:
-        *params = static_cast<GLint64>(std::numeric_limits<unsigned int>::max());
+        *params = mCaps.maxElementIndex;
         break;
       case GL_MAX_UNIFORM_BLOCK_SIZE:
         *params = static_cast<GLint64>(mRenderer->getMaxUniformBufferSize());
@@ -2180,7 +2147,7 @@ bool Context::getQueryParameterInfo(GLenum pname, GLenum *type, unsigned int *nu
         return true;
       case GL_MAX_SAMPLES_ANGLE:
         {
-            if (getMaxSupportedSamples() != 0)
+            if (mExtensions.framebufferMultisample)
             {
                 *type = GL_INT;
                 *numParams = 1;
@@ -2194,7 +2161,7 @@ bool Context::getQueryParameterInfo(GLenum pname, GLenum *type, unsigned int *nu
       case GL_PIXEL_PACK_BUFFER_BINDING:
       case GL_PIXEL_UNPACK_BUFFER_BINDING:
         {
-            if (supportsPBOs())
+            if (mExtensions.pixelBufferObject)
             {
                 *type = GL_INT;
                 *numParams = 1;
@@ -2268,7 +2235,7 @@ bool Context::getQueryParameterInfo(GLenum pname, GLenum *type, unsigned int *nu
         }
         return true;
       case GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT:
-        if (!supportsTextureFilterAnisotropy())
+        if (!mExtensions.maxTextureAnisotropy)
         {
             return false;
         }
@@ -2373,11 +2340,7 @@ bool Context::getIndexedQueryParameterInfo(GLenum target, GLenum *type, unsigned
 bool Context::applyRenderTarget(GLenum drawMode, bool ignoreViewport)
 {
     Framebuffer *framebufferObject = getDrawFramebuffer();
-
-    if (!framebufferObject || framebufferObject->completeness() != GL_FRAMEBUFFER_COMPLETE)
-    {
-        return gl::error(GL_INVALID_FRAMEBUFFER_OPERATION, false);
-    }
+    ASSERT(framebufferObject && framebufferObject->completeness() == GL_FRAMEBUFFER_COMPLETE);
 
     mRenderer->applyRenderTarget(framebufferObject);
 
@@ -2445,7 +2408,9 @@ void Context::applyShaders(ProgramBinary *programBinary, bool transformFeedbackA
     VertexFormat inputLayout[gl::MAX_VERTEX_ATTRIBS];
     VertexFormat::GetInputLayout(inputLayout, programBinary, vertexAttributes, mState.vertexAttribCurrentValues);
 
-    mRenderer->applyShaders(programBinary, mState.rasterizer.rasterizerDiscard, transformFeedbackActive, inputLayout);
+    const Framebuffer *fbo = getDrawFramebuffer();
+
+    mRenderer->applyShaders(programBinary, inputLayout, fbo, mState.rasterizer.rasterizerDiscard, transformFeedbackActive);
 
     programBinary->applyUniforms();
 }
@@ -2461,7 +2426,7 @@ size_t Context::getCurrentTexturesAndSamplerStates(ProgramBinary *programBinary,
         if (textureUnit != -1)
         {
             outTextures[i] = getSamplerTexture(textureUnit, outTextureTypes[i]);
-            outTextures[i]->getSamplerState(&outSamplers[i]);
+            outTextures[i]->getSamplerStateWithNativeOffset(&outSamplers[i]);
             if (mState.samplers[textureUnit] != 0)
             {
                 Sampler *samplerObject = getSampler(mState.samplers[textureUnit]);
@@ -2481,7 +2446,7 @@ void Context::generateSwizzles(Texture *textures[], size_t count)
 {
     for (size_t i = 0; i < count; i++)
     {
-        if (textures[i] && textures[i]->isSwizzled())
+        if (textures[i] && textures[i]->getSamplerState().swizzleRequired())
         {
             mRenderer->generateSwizzle(textures[i]);
         }
@@ -2634,7 +2599,7 @@ void Context::clear(GLbitfield mask)
 
     if (mask & GL_DEPTH_BUFFER_BIT)
     {
-        if (mState.depthStencil.depthMask && framebufferObject->getDepthbufferType() != GL_NONE)
+        if (mState.depthStencil.depthMask && framebufferObject->getDepthbuffer() != NULL)
         {
             clearParams.clearDepth = true;
         }
@@ -2642,7 +2607,7 @@ void Context::clear(GLbitfield mask)
 
     if (mask & GL_STENCIL_BUFFER_BIT)
     {
-        if (framebufferObject->getStencilbufferType() != GL_NONE)
+        if (framebufferObject->getStencilbuffer() != NULL)
         {
             rx::RenderTarget *depthStencil = framebufferObject->getStencilbuffer()->getDepthStencil();
             if (!depthStencil)
@@ -2651,13 +2616,12 @@ void Context::clear(GLbitfield mask)
                 return;
             }
 
-            if (gl::GetStencilBits(depthStencil->getActualFormat(), mClientVersion) > 0)
+            if (gl::GetStencilBits(depthStencil->getActualFormat()) > 0)
             {
                 clearParams.clearStencil = true;
             }
         }
     }
-
 
     if (!applyRenderTarget(GL_TRIANGLES, true))   // Clips the clear to the scissor rectangle but not the viewport
     {
@@ -2861,22 +2825,19 @@ void Context::readPixels(GLint x, GLint y, GLsizei width, GLsizei height,
 {
     gl::Framebuffer *framebuffer = getReadFramebuffer();
 
-    bool isSized = IsSizedInternalFormat(format, mClientVersion);
-    GLenum sizedInternalFormat = (isSized ? format : GetSizedInternalFormat(format, type, mClientVersion));
-    GLuint outputPitch = GetRowPitch(sizedInternalFormat, type, mClientVersion, width, mState.pack.alignment);
+    bool isSized = IsSizedInternalFormat(format);
+    GLenum sizedInternalFormat = (isSized ? format : GetSizedInternalFormat(format, type));
+    GLuint outputPitch = GetRowPitch(sizedInternalFormat, type, width, mState.pack.alignment);
 
     mRenderer->readPixels(framebuffer, x, y, width, height, format, type, outputPitch, mState.pack, pixels);
 }
 
 void Context::drawArrays(GLenum mode, GLint first, GLsizei count, GLsizei instances)
 {
-    if (!mState.currentProgram)
-    {
-        return gl::error(GL_INVALID_OPERATION);
-    }
+    ASSERT(mState.currentProgram);
 
     ProgramBinary *programBinary = getCurrentProgramBinary();
-    programBinary->applyUniforms();
+    programBinary->updateSamplerMapping();
 
     Texture *vsTextures[IMPLEMENTATION_MAX_VERTEX_TEXTURE_IMAGE_UNITS];
     TextureType vsTextureTypes[IMPLEMENTATION_MAX_VERTEX_TEXTURE_IMAGE_UNITS];
@@ -2924,11 +2885,6 @@ void Context::drawArrays(GLenum mode, GLint first, GLsizei count, GLsizei instan
         return;
     }
 
-    if (!programBinary->validateSamplers(NULL))
-    {
-        return gl::error(GL_INVALID_OPERATION);
-    }
-
     if (!skipDraw(mode))
     {
         mRenderer->drawArrays(mode, count, instances, transformFeedbackActive);
@@ -2942,19 +2898,10 @@ void Context::drawArrays(GLenum mode, GLint first, GLsizei count, GLsizei instan
 
 void Context::drawElements(GLenum mode, GLsizei count, GLenum type, const GLvoid *indices, GLsizei instances)
 {
-    if (!mState.currentProgram)
-    {
-        return gl::error(GL_INVALID_OPERATION);
-    }
-
-    VertexArray *vao = getCurrentVertexArray();
-    if (!indices && !vao->getElementArrayBuffer())
-    {
-        return gl::error(GL_INVALID_OPERATION);
-    }
+    ASSERT(mState.currentProgram);
 
     ProgramBinary *programBinary = getCurrentProgramBinary();
-    programBinary->applyUniforms();
+    programBinary->updateSamplerMapping();
 
     Texture *vsTextures[IMPLEMENTATION_MAX_VERTEX_TEXTURE_IMAGE_UNITS];
     TextureType vsTextureTypes[IMPLEMENTATION_MAX_VERTEX_TEXTURE_IMAGE_UNITS];
@@ -2981,6 +2928,7 @@ void Context::drawElements(GLenum mode, GLsizei count, GLenum type, const GLvoid
 
     applyState(mode);
 
+    VertexArray *vao = getCurrentVertexArray();
     rx::TranslatedIndexData indexInfo;
     GLenum err = mRenderer->applyIndexBuffer(indices, vao->getElementArrayBuffer(), count, mode, type, &indexInfo);
     if (err != GL_NO_ERROR)
@@ -3011,11 +2959,6 @@ void Context::drawElements(GLenum mode, GLsizei count, GLenum type, const GLvoid
     if (!applyUniformBuffers())
     {
         return;
-    }
-
-    if (!programBinary->validateSamplers(NULL))
-    {
-        return gl::error(GL_INVALID_OPERATION);
     }
 
     if (!skipDraw(mode))
@@ -3131,14 +3074,24 @@ int Context::getClientVersion() const
     return mClientVersion;
 }
 
+const Caps &Context::getCaps() const
+{
+    return mCaps;
+}
+
+const TextureCapsMap &Context::getTextureCaps() const
+{
+    return mTextureCaps;
+}
+
+const Extensions &Context::getExtensions() const
+{
+    return mExtensions;
+}
+
 int Context::getMajorShaderModel() const
 {
     return mMajorShaderModel;
-}
-
-float Context::getMaximumPointSize() const
-{
-    return mMaximumPointSize;
 }
 
 unsigned int Context::getMaximumCombinedTextureImageUnits() const
@@ -3183,166 +3136,6 @@ GLintptr Context::getUniformBufferOffsetAlignment() const
     return static_cast<GLintptr>(std::numeric_limits<GLint>::max());
 }
 
-unsigned int Context::getMaximumRenderTargets() const
-{
-    return mRenderer->getMaxRenderTargets();
-}
-
-bool Context::supportsEventQueries() const
-{
-    return mSupportsEventQueries;
-}
-
-bool Context::supportsOcclusionQueries() const
-{
-    return mSupportsOcclusionQueries;
-}
-
-bool Context::supportsBGRATextures() const
-{
-    return mSupportsBGRATextures;
-}
-
-bool Context::supportsDXT1Textures() const
-{
-    return mSupportsDXT1Textures;
-}
-
-bool Context::supportsDXT3Textures() const
-{
-    return mSupportsDXT3Textures;
-}
-
-bool Context::supportsDXT5Textures() const
-{
-    return mSupportsDXT5Textures;
-}
-
-bool Context::supportsFloat32Textures() const
-{
-    return mSupportsFloat32Textures;
-}
-
-bool Context::supportsFloat32LinearFilter() const
-{
-    return mSupportsFloat32LinearFilter;
-}
-
-bool Context::supportsFloat32RenderableTextures() const
-{
-    return mSupportsFloat32RenderableTextures;
-}
-
-bool Context::supportsFloat16Textures() const
-{
-    return mSupportsFloat16Textures;
-}
-
-bool Context::supportsFloat16LinearFilter() const
-{
-    return mSupportsFloat16LinearFilter;
-}
-
-bool Context::supportsFloat16RenderableTextures() const
-{
-    return mSupportsFloat16RenderableTextures;
-}
-
-int Context::getMaximumRenderbufferDimension() const
-{
-    return mMaxRenderbufferDimension;
-}
-
-int Context::getMaximum2DTextureDimension() const
-{
-    return mMax2DTextureDimension;
-}
-
-int Context::getMaximumCubeTextureDimension() const
-{
-    return mMaxCubeTextureDimension;
-}
-
-int Context::getMaximum3DTextureDimension() const
-{
-    return mMax3DTextureDimension;
-}
-
-int Context::getMaximum2DArrayTextureLayers() const
-{
-    return mMax2DArrayTextureLayers;
-}
-
-int Context::getMaximum2DTextureLevel() const
-{
-    return mMax2DTextureLevel;
-}
-
-int Context::getMaximumCubeTextureLevel() const
-{
-    return mMaxCubeTextureLevel;
-}
-
-int Context::getMaximum3DTextureLevel() const
-{
-    return mMax3DTextureLevel;
-}
-
-int Context::getMaximum2DArrayTextureLevel() const
-{
-    return mMax2DArrayTextureLevel;
-}
-
-bool Context::supportsLuminanceTextures() const
-{
-    return mSupportsLuminanceTextures;
-}
-
-bool Context::supportsLuminanceAlphaTextures() const
-{
-    return mSupportsLuminanceAlphaTextures;
-}
-
-bool Context::supportsRGTextures() const
-{
-    return mSupportsRGTextures;
-}
-
-bool Context::supportsDepthTextures() const
-{
-    return mSupportsDepthTextures;
-}
-
-bool Context::supports32bitIndices() const
-{
-    return mSupports32bitIndices;
-}
-
-bool Context::supportsNonPower2Texture() const
-{
-    return mSupportsNonPower2Texture;
-}
-
-bool Context::supportsInstancing() const
-{
-    return mSupportsInstancing;
-}
-
-bool Context::supportsTextureFilterAnisotropy() const
-{
-    return mSupportsTextureFilterAnisotropy;
-}
-
-bool Context::supportsPBOs() const
-{
-    return mSupportsPBOs;
-}
-
-float Context::getTextureMaxAnisotropy() const
-{
-    return mMaxTextureAnisotropy;
-}
-
 void Context::getCurrentReadFormatType(GLenum *internalFormat, GLenum *format, GLenum *type)
 {
     Framebuffer *framebuffer = getReadFramebuffer();
@@ -3352,8 +3145,8 @@ void Context::getCurrentReadFormatType(GLenum *internalFormat, GLenum *format, G
     ASSERT(attachment);
 
     *internalFormat = attachment->getActualFormat();
-    *format = gl::GetFormat(attachment->getActualFormat(), mClientVersion);
-    *type = gl::GetType(attachment->getActualFormat(), mClientVersion);
+    *format = gl::GetFormat(attachment->getActualFormat());
+    *type = gl::GetType(attachment->getActualFormat());
 }
 
 void Context::detachBuffer(GLuint buffer)
@@ -3692,175 +3485,6 @@ GLfloat Context::getSamplerParameterf(GLuint sampler, GLenum pname)
     }
 }
 
-// keep list sorted in following order
-// OES extensions
-// EXT extensions
-// Vendor extensions
-void Context::initExtensionString()
-{
-    // Do not report extension in GLES 3 contexts for now
-    if (mClientVersion == 2)
-    {
-        // OES extensions
-        if (supports32bitIndices())
-        {
-            mExtensionStringList.push_back("GL_OES_element_index_uint");
-        }
-
-        mExtensionStringList.push_back("GL_OES_packed_depth_stencil");
-        mExtensionStringList.push_back("GL_OES_get_program_binary");
-        mExtensionStringList.push_back("GL_OES_rgb8_rgba8");
-
-        if (supportsPBOs())
-        {
-            mExtensionStringList.push_back("NV_pixel_buffer_object");
-            mExtensionStringList.push_back("GL_OES_mapbuffer");
-            mExtensionStringList.push_back("GL_EXT_map_buffer_range");
-        }
-
-        if (mRenderer->getDerivativeInstructionSupport())
-        {
-            mExtensionStringList.push_back("GL_OES_standard_derivatives");
-        }
-
-        if (supportsFloat16Textures())
-        {
-            mExtensionStringList.push_back("GL_OES_texture_half_float");
-        }
-        if (supportsFloat16LinearFilter())
-        {
-            mExtensionStringList.push_back("GL_OES_texture_half_float_linear");
-        }
-        if (supportsFloat32Textures())
-        {
-            mExtensionStringList.push_back("GL_OES_texture_float");
-        }
-        if (supportsFloat32LinearFilter())
-        {
-            mExtensionStringList.push_back("GL_OES_texture_float_linear");
-        }
-
-        if (supportsRGTextures())
-        {
-            mExtensionStringList.push_back("GL_EXT_texture_rg");
-        }
-
-        if (supportsNonPower2Texture())
-        {
-            mExtensionStringList.push_back("GL_OES_texture_npot");
-        }
-
-        // Multi-vendor (EXT) extensions
-        if (supportsOcclusionQueries())
-        {
-            mExtensionStringList.push_back("GL_EXT_occlusion_query_boolean");
-        }
-
-        mExtensionStringList.push_back("GL_EXT_read_format_bgra");
-        mExtensionStringList.push_back("GL_EXT_robustness");
-        mExtensionStringList.push_back("GL_EXT_shader_texture_lod");
-
-        if (supportsDXT1Textures())
-        {
-            mExtensionStringList.push_back("GL_EXT_texture_compression_dxt1");
-        }
-
-        if (supportsTextureFilterAnisotropy())
-        {
-            mExtensionStringList.push_back("GL_EXT_texture_filter_anisotropic");
-        }
-
-        if (supportsBGRATextures())
-        {
-            mExtensionStringList.push_back("GL_EXT_texture_format_BGRA8888");
-        }
-
-        if (mRenderer->getMaxRenderTargets() > 1)
-        {
-            mExtensionStringList.push_back("GL_EXT_draw_buffers");
-        }
-
-        mExtensionStringList.push_back("GL_EXT_texture_storage");
-        mExtensionStringList.push_back("GL_EXT_frag_depth");
-        mExtensionStringList.push_back("GL_EXT_blend_minmax");
-
-        // ANGLE-specific extensions
-        if (supportsDepthTextures())
-        {
-            mExtensionStringList.push_back("GL_ANGLE_depth_texture");
-        }
-
-        mExtensionStringList.push_back("GL_ANGLE_framebuffer_blit");
-        if (getMaxSupportedSamples() != 0)
-        {
-            mExtensionStringList.push_back("GL_ANGLE_framebuffer_multisample");
-        }
-
-        if (supportsInstancing())
-        {
-            mExtensionStringList.push_back("GL_ANGLE_instanced_arrays");
-        }
-
-        mExtensionStringList.push_back("GL_ANGLE_pack_reverse_row_order");
-
-        if (supportsDXT3Textures())
-        {
-            mExtensionStringList.push_back("GL_ANGLE_texture_compression_dxt3");
-        }
-        if (supportsDXT5Textures())
-        {
-            mExtensionStringList.push_back("GL_ANGLE_texture_compression_dxt5");
-        }
-
-        mExtensionStringList.push_back("GL_ANGLE_texture_usage");
-        mExtensionStringList.push_back("GL_ANGLE_translated_shader_source");
-
-        // Other vendor-specific extensions
-        if (supportsEventQueries())
-        {
-            mExtensionStringList.push_back("GL_NV_fence");
-        }
-    }
-
-    if (mClientVersion == 3)
-    {
-        mExtensionStringList.push_back("GL_EXT_color_buffer_float");
-
-        mExtensionStringList.push_back("GL_EXT_read_format_bgra");
-
-        if (supportsBGRATextures())
-        {
-            mExtensionStringList.push_back("GL_EXT_texture_format_BGRA8888");
-        }
-    }
-
-    // Join the extension strings to one long string for use with GetString
-    std::stringstream strstr;
-    for (unsigned int extensionIndex = 0; extensionIndex < mExtensionStringList.size(); extensionIndex++)
-    {
-        strstr << mExtensionStringList[extensionIndex];
-        strstr << " ";
-    }
-
-    mCombinedExtensionsString = makeStaticString(strstr.str());
-}
-
-const char *Context::getCombinedExtensionsString() const
-{
-    return mCombinedExtensionsString;
-}
-
-const char *Context::getExtensionString(const GLuint index) const
-{
-    ASSERT(index < mExtensionStringList.size());
-    return mExtensionStringList[index].c_str();
-}
-
-unsigned int Context::getNumExtensions() const
-{
-    return mExtensionStringList.size();
-}
-
 void Context::initRendererString()
 {
     std::ostringstream rendererString;
@@ -3868,12 +3492,36 @@ void Context::initRendererString()
     rendererString << mRenderer->getRendererDescription();
     rendererString << ")";
 
-    mRendererString = makeStaticString(rendererString.str());
+    mRendererString = MakeStaticString(rendererString.str());
 }
 
-const char *Context::getRendererString() const
+const std::string &Context::getRendererString() const
 {
     return mRendererString;
+}
+
+void Context::initExtensionStrings()
+{
+    mExtensionStrings = mExtensions.getStrings(mClientVersion);
+
+    std::ostringstream combinedStringStream;
+    std::copy(mExtensionStrings.begin(), mExtensionStrings.end(), std::ostream_iterator<std::string>(combinedStringStream, " "));
+    mExtensionString = combinedStringStream.str();
+}
+
+const std::string &Context::getExtensionString() const
+{
+    return mExtensionString;
+}
+
+const std::string &Context::getExtensionString(size_t idx) const
+{
+    return mExtensionStrings[idx];
+}
+
+size_t Context::getExtensionStringCount() const
+{
+    return mExtensionStrings.size();
 }
 
 size_t Context::getBoundFramebufferTextureSerials(FramebufferTextureSerialArray *outSerialArray)
@@ -4013,8 +3661,8 @@ bool Context::hasMappedBuffer(GLenum target) const
         for (unsigned int attribIndex = 0; attribIndex < gl::MAX_VERTEX_ATTRIBS; attribIndex++)
         {
             const gl::VertexAttribute &vertexAttrib = getVertexAttribState(attribIndex);
-            gl::Buffer *boundBuffer = vertexAttrib.mBoundBuffer.get();
-            if (vertexAttrib.mArrayEnabled && boundBuffer && boundBuffer->mapped())
+            gl::Buffer *boundBuffer = vertexAttrib.buffer.get();
+            if (vertexAttrib.enabled && boundBuffer && boundBuffer->isMapped())
             {
                 return true;
             }
@@ -4023,7 +3671,7 @@ bool Context::hasMappedBuffer(GLenum target) const
     else if (target == GL_ELEMENT_ARRAY_BUFFER)
     {
         Buffer *elementBuffer = getElementArrayBuffer();
-        return (elementBuffer && elementBuffer->mapped());
+        return (elementBuffer && elementBuffer->isMapped());
     }
     else if (target == GL_TRANSFORM_FEEDBACK_BUFFER)
     {

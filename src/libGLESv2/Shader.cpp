@@ -1,6 +1,6 @@
 #include "precompiled.h"
 //
-// Copyright (c) 2002-2013 The ANGLE Project Authors. All rights reserved.
+// Copyright (c) 2002-2014 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -115,12 +115,12 @@ void Shader::getTranslatedSource(GLsizei bufSize, GLsizei *length, char *buffer)
     getSourceImpl(mHlsl, bufSize, length, buffer);
 }
 
-const std::vector<Uniform> &Shader::getUniforms() const
+const std::vector<sh::Uniform> &Shader::getUniforms() const
 {
     return mActiveUniforms;
 }
 
-const std::vector<InterfaceBlock> &Shader::getInterfaceBlocks() const
+const std::vector<sh::InterfaceBlock> &Shader::getInterfaceBlocks() const
 {
     return mActiveInterfaceBlocks;
 }
@@ -184,6 +184,10 @@ void Shader::initializeCompiler()
             ShBuiltInResources resources;
             ShInitBuiltInResources(&resources);
 
+            // TODO(geofflang): use context's caps
+            const gl::Caps &caps = mRenderer->getRendererCaps();
+            const gl::Extensions &extensions = mRenderer->getRendererExtensions();
+
             resources.MaxVertexAttribs = MAX_VERTEX_ATTRIBS;
             resources.MaxVertexUniformVectors = mRenderer->getMaxVertexUniformVectors();
             resources.MaxVaryingVectors = mRenderer->getMaxVaryingVectors();
@@ -191,9 +195,9 @@ void Shader::initializeCompiler()
             resources.MaxCombinedTextureImageUnits = mRenderer->getMaxCombinedTextureImageUnits();
             resources.MaxTextureImageUnits = MAX_TEXTURE_IMAGE_UNITS;
             resources.MaxFragmentUniformVectors = mRenderer->getMaxFragmentUniformVectors();
-            resources.MaxDrawBuffers = mRenderer->getMaxRenderTargets();
-            resources.OES_standard_derivatives = mRenderer->getDerivativeInstructionSupport();
-            resources.EXT_draw_buffers = mRenderer->getMaxRenderTargets() > 1;
+            resources.MaxDrawBuffers = caps.maxDrawBuffers;
+            resources.OES_standard_derivatives = extensions.standardDerivatives;
+            resources.EXT_draw_buffers = extensions.drawBuffers;
             resources.EXT_shader_texture_lod = 1;
             // resources.OES_EGL_image_external = mRenderer->getShareHandleSupport() ? 1 : 0; // TODO: commented out until the extension is actually supported.
             resources.FragmentPrecisionHigh = 1;   // Shader Model 2+ always supports FP24 (s16e7) which corresponds to highp
@@ -204,8 +208,8 @@ void Shader::initializeCompiler()
             resources.MinProgramTexelOffset = -8;   // D3D10_COMMONSHADER_TEXEL_OFFSET_MAX_NEGATIVE
             resources.MaxProgramTexelOffset = 7;    // D3D10_COMMONSHADER_TEXEL_OFFSET_MAX_POSITIVE
 
-            mFragmentCompiler = ShConstructCompiler(SH_FRAGMENT_SHADER, SH_GLES2_SPEC, hlslVersion, &resources);
-            mVertexCompiler = ShConstructCompiler(SH_VERTEX_SHADER, SH_GLES2_SPEC, hlslVersion, &resources);
+            mFragmentCompiler = ShConstructCompiler(GL_FRAGMENT_SHADER, SH_GLES2_SPEC, hlslVersion, &resources);
+            mVertexCompiler = ShConstructCompiler(GL_VERTEX_SHADER, SH_GLES2_SPEC, hlslVersion, &resources);
         }
     }
 }
@@ -225,7 +229,7 @@ void Shader::parseVaryings(void *compiler)
 {
     if (!mHlsl.empty())
     {
-        std::vector<Varying> *activeVaryings;
+        std::vector<sh::Varying> *activeVaryings;
         ShGetInfoPointer(compiler, SH_ACTIVE_VARYINGS_ARRAY, reinterpret_cast<void**>(&activeVaryings));
 
         for (size_t varyingIndex = 0; varyingIndex < activeVaryings->size(); varyingIndex++)
@@ -361,11 +365,11 @@ void Shader::compileToHLSL(void *compiler)
 
         void *activeUniforms;
         ShGetInfoPointer(compiler, SH_ACTIVE_UNIFORMS_ARRAY, &activeUniforms);
-        mActiveUniforms = *(std::vector<Uniform>*)activeUniforms;
+        mActiveUniforms = *(std::vector<sh::Uniform>*)activeUniforms;
 
         void *activeInterfaceBlocks;
         ShGetInfoPointer(compiler, SH_ACTIVE_INTERFACE_BLOCKS_ARRAY, &activeInterfaceBlocks);
-        mActiveInterfaceBlocks = *(std::vector<InterfaceBlock>*)activeInterfaceBlocks;
+        mActiveInterfaceBlocks = *(std::vector<sh::InterfaceBlock>*)activeInterfaceBlocks;
     }
     else
     {
@@ -400,49 +404,6 @@ rx::D3DWorkaroundType Shader::getD3DWorkarounds() const
     return rx::ANGLE_D3D_WORKAROUND_NONE;
 }
 
-// [OpenGL ES SL 3.00.4] Section 11 p. 120
-// Vertex Outs/Fragment Ins packing priorities
-static const GLenum varyingPriorityList[] =
-{
-    // 1. Arrays of mat4 and mat4
-    GL_FLOAT_MAT4,
-
-    // Non-square matrices of type matCxR consume the same space as a square
-    // matrix of type matN where N is the greater of C and R
-    GL_FLOAT_MAT3x4,
-    GL_FLOAT_MAT4x3,
-    GL_FLOAT_MAT2x4,
-    GL_FLOAT_MAT4x2,
-
-    // 2. Arrays of mat2 and mat2 (since they occupy full rows)
-    GL_FLOAT_MAT2,
-
-    // 3. Arrays of vec4 and vec4
-    GL_FLOAT_VEC4,
-    GL_INT_VEC4,
-    GL_UNSIGNED_INT_VEC4,
-
-    // 4. Arrays of mat3 and mat3
-    GL_FLOAT_MAT3,
-    GL_FLOAT_MAT2x3,
-    GL_FLOAT_MAT3x2,
-
-    // 5. Arrays of vec3 and vec3
-    GL_FLOAT_VEC3,
-    GL_INT_VEC3,
-    GL_UNSIGNED_INT_VEC3,
-
-    // 6. Arrays of vec2 and vec2
-    GL_FLOAT_VEC2,
-    GL_INT_VEC2,
-    GL_UNSIGNED_INT_VEC2,
-
-    // 7. Arrays of float and float
-    GL_FLOAT,
-    GL_INT,
-    GL_UNSIGNED_INT,
-};
-
 // true if varying x has a higher priority in packing than y
 bool Shader::compareVarying(const PackedVarying &x, const PackedVarying &y)
 {
@@ -457,19 +418,12 @@ bool Shader::compareVarying(const PackedVarying &x, const PackedVarying &y)
         return false;
     }
 
-    unsigned int xPriority = GL_INVALID_INDEX;
-    unsigned int yPriority = GL_INVALID_INDEX;
-
-    for (unsigned int priorityIndex = 0; priorityIndex < ArraySize(varyingPriorityList); priorityIndex++)
+    if (y.type == GL_STRUCT_ANGLEX)
     {
-        if (varyingPriorityList[priorityIndex] == x.type) xPriority = priorityIndex;
-        if (varyingPriorityList[priorityIndex] == y.type) yPriority = priorityIndex;
-        if (xPriority != GL_INVALID_INDEX && yPriority != GL_INVALID_INDEX) break;
+        return true;
     }
 
-    ASSERT(xPriority != GL_INVALID_INDEX && yPriority != GL_INVALID_INDEX);
-
-    return xPriority <= yPriority;
+    return gl::VariableSortOrder(x.type) <= gl::VariableSortOrder(y.type);
 }
 
 int Shader::getShaderVersion() const
@@ -515,14 +469,14 @@ int VertexShader::getSemanticIndex(const std::string &attributeName)
         int semanticIndex = 0;
         for (unsigned int attributeIndex = 0; attributeIndex < mActiveAttributes.size(); attributeIndex++)
         {
-            const ShaderVariable &attribute = mActiveAttributes[attributeIndex];
+            const sh::ShaderVariable &attribute = mActiveAttributes[attributeIndex];
 
             if (attribute.name == attributeName)
             {
                 return semanticIndex;
             }
 
-            semanticIndex += AttributeRegisterCount(attribute.type);
+            semanticIndex += VariableRegisterCount(attribute.type);
         }
     }
 
@@ -536,7 +490,7 @@ void VertexShader::parseAttributes()
     {
         void *activeAttributes;
         ShGetInfoPointer(mVertexCompiler, SH_ACTIVE_ATTRIBUTES_ARRAY, &activeAttributes);
-        mActiveAttributes = *(std::vector<Attribute>*)activeAttributes;
+        mActiveAttributes = *(std::vector<sh::Attribute>*)activeAttributes;
     }
 }
 
@@ -567,7 +521,7 @@ void FragmentShader::compile()
     {
         void *activeOutputVariables;
         ShGetInfoPointer(mFragmentCompiler, SH_ACTIVE_OUTPUT_VARIABLES_ARRAY, &activeOutputVariables);
-        mActiveOutputVariables = *(std::vector<Attribute>*)activeOutputVariables;
+        mActiveOutputVariables = *(std::vector<sh::Attribute>*)activeOutputVariables;
     }
 }
 
@@ -578,7 +532,7 @@ void FragmentShader::uncompile()
     mActiveOutputVariables.clear();
 }
 
-const std::vector<Attribute> &FragmentShader::getOutputVariables() const
+const std::vector<sh::Attribute> &FragmentShader::getOutputVariables() const
 {
     return mActiveOutputVariables;
 }
