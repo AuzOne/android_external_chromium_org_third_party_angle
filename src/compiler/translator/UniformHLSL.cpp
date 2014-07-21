@@ -31,7 +31,6 @@ static void SetBlockLayout(InterfaceBlock *interfaceBlock, BlockLayoutType newLa
         {
             HLSLBlockEncoder hlslEncoder(&interfaceBlock->blockInfo, HLSLBlockEncoder::ENCODE_PACKED);
             hlslEncoder.encodeInterfaceBlockFields(interfaceBlock->fields);
-            interfaceBlock->dataSize = hlslEncoder.getBlockSize();
         }
         break;
 
@@ -39,7 +38,6 @@ static void SetBlockLayout(InterfaceBlock *interfaceBlock, BlockLayoutType newLa
         {
             Std140BlockEncoder stdEncoder(&interfaceBlock->blockInfo);
             stdEncoder.encodeInterfaceBlockFields(interfaceBlock->fields);
-            interfaceBlock->dataSize = stdEncoder.getBlockSize();
         }
         break;
 
@@ -225,7 +223,9 @@ TString UniformHLSL::interfaceBlocksHeader(const ReferencedSymbols &referencedIn
         const TFieldList &fieldList = interfaceBlock.fields();
 
         unsigned int arraySize = static_cast<unsigned int>(interfaceBlock.arraySize());
-        InterfaceBlock activeBlock(interfaceBlock.name().c_str(), arraySize, mInterfaceBlockRegister);
+        unsigned int activeRegister = mInterfaceBlockRegister;
+
+        InterfaceBlock activeBlock(interfaceBlock.name().c_str(), arraySize);
         for (unsigned int typeIndex = 0; typeIndex < fieldList.size(); typeIndex++)
         {
             const TField &field = *fieldList[typeIndex];
@@ -236,7 +236,7 @@ TString UniformHLSL::interfaceBlocksHeader(const ReferencedSymbols &referencedIn
             traverser.traverse(*field.type(), fullFieldName);
         }
 
-        mInterfaceBlockRegisterMap[activeBlock.name] = mInterfaceBlockRegister;
+        mInterfaceBlockRegisterMap[activeBlock.name] = activeRegister;
         mInterfaceBlockRegister += std::max(1u, arraySize);
 
         BlockLayoutType blockLayoutType = GetBlockLayoutType(interfaceBlock.blockStorage());
@@ -258,12 +258,12 @@ TString UniformHLSL::interfaceBlocksHeader(const ReferencedSymbols &referencedIn
         {
             for (unsigned int arrayIndex = 0; arrayIndex < arraySize; arrayIndex++)
             {
-                interfaceBlocks += interfaceBlockString(interfaceBlock, activeBlock.registerIndex + arrayIndex, arrayIndex);
+                interfaceBlocks += interfaceBlockString(interfaceBlock, activeRegister + arrayIndex, arrayIndex);
             }
         }
         else
         {
-            interfaceBlocks += interfaceBlockString(interfaceBlock, activeBlock.registerIndex, GL_INVALID_INDEX);
+            interfaceBlocks += interfaceBlockString(interfaceBlock, activeRegister, GL_INVALID_INDEX);
         }
     }
 

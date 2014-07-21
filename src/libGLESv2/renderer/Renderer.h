@@ -58,6 +58,8 @@ class Image;
 class TextureStorage;
 class UniformStorage;
 
+class Texture2DImpl;
+
 struct ConfigDesc
 {
     GLenum  renderTargetFormat;
@@ -124,7 +126,7 @@ class Renderer
                               bool rasterizerDiscard, bool transformFeedbackActive) = 0;
     virtual void applyUniforms(const gl::ProgramBinary &programBinary) = 0;
     virtual bool applyPrimitiveType(GLenum primitiveType, GLsizei elementCount) = 0;
-    virtual GLenum applyVertexBuffer(gl::ProgramBinary *programBinary, const gl::VertexAttribute vertexAttributes[], gl::VertexAttribCurrentValueData currentValues[],
+    virtual GLenum applyVertexBuffer(gl::ProgramBinary *programBinary, const gl::VertexAttribute vertexAttributes[], const gl::VertexAttribCurrentValueData currentValues[],
                                      GLint first, GLsizei count, GLsizei instances) = 0;
     virtual GLenum applyIndexBuffer(const GLvoid *indices, gl::Buffer *elementArrayBuffer, GLsizei count, GLenum mode, GLenum type, TranslatedIndexData *indexInfo) = 0;
     virtual void applyTransformFeedbackBuffers(gl::Buffer *transformFeedbackBuffers[], GLintptr offsets[]) = 0;
@@ -224,6 +226,9 @@ class Renderer
     virtual TextureStorage *createTextureStorageCube(GLenum internalformat, bool renderTarget, int size, int levels) = 0;
     virtual TextureStorage *createTextureStorage3D(GLenum internalformat, bool renderTarget, GLsizei width, GLsizei height, GLsizei depth, int levels) = 0;
     virtual TextureStorage *createTextureStorage2DArray(GLenum internalformat, bool renderTarget, GLsizei width, GLsizei height, GLsizei depth, int levels) = 0;
+
+    // Texture creation
+    virtual Texture2DImpl *createTexture2D() = 0;
 
     // Buffer creation
     virtual BufferImpl *createBuffer() = 0;

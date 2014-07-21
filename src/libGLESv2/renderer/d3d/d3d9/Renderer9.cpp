@@ -17,6 +17,7 @@
 #include "libGLESv2/Renderbuffer.h"
 #include "libGLESv2/ProgramBinary.h"
 #include "libGLESv2/renderer/d3d/IndexDataManager.h"
+#include "libGLESv2/renderer/d3d/TextureD3D.h"
 #include "libGLESv2/renderer/d3d/d3d9/Renderer9.h"
 #include "libGLESv2/renderer/d3d/d3d9/renderer9_utils.h"
 #include "libGLESv2/renderer/d3d/d3d9/formatutils9.h"
@@ -1268,7 +1269,7 @@ bool Renderer9::applyRenderTarget(gl::Framebuffer *framebuffer)
     return true;
 }
 
-GLenum Renderer9::applyVertexBuffer(gl::ProgramBinary *programBinary, const gl::VertexAttribute vertexAttributes[], gl::VertexAttribCurrentValueData currentValues[],
+GLenum Renderer9::applyVertexBuffer(gl::ProgramBinary *programBinary, const gl::VertexAttribute vertexAttributes[], const gl::VertexAttribCurrentValueData currentValues[],
                                     GLint first, GLsizei count, GLsizei instances)
 {
     TranslatedAttribute attributes[gl::MAX_VERTEX_ATTRIBS];
@@ -3191,6 +3192,11 @@ TextureStorage *Renderer9::createTextureStorage2DArray(GLenum internalformat, bo
     UNREACHABLE();
 
     return NULL;
+}
+
+Texture2DImpl *Renderer9::createTexture2D()
+{
+    return new TextureD3D_2D(this);
 }
 
 bool Renderer9::getLUID(LUID *adapterLuid) const
