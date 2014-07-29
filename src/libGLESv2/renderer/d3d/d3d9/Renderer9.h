@@ -33,7 +33,7 @@ class Blit9;
 class Renderer9 : public Renderer
 {
   public:
-    Renderer9(egl::Display *display, HDC hDc);
+    Renderer9(egl::Display *display, EGLNativeDisplayType hDc, EGLint requestedDisplay);
     virtual ~Renderer9();
 
     static Renderer9 *makeRenderer9(Renderer *renderer);
@@ -181,6 +181,9 @@ class Renderer9 : public Renderer
 
     // Texture creation
     virtual Texture2DImpl *createTexture2D();
+    virtual TextureCubeImpl *createTextureCube();
+    virtual Texture3DImpl *createTexture3D();
+    virtual Texture2DArrayImpl *createTexture2DArray();
 
     // Buffer creation
     virtual BufferImpl *createBuffer();

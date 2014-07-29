@@ -44,9 +44,7 @@ Context::Context(int clientVersion, const gl::Context *shareContext, rx::Rendere
 {
     ASSERT(robustAccess == false);   // Unimplemented
 
-    mCaps = mRenderer->getRendererCaps();
-    mTextureCaps = mRenderer->getRendererTextureCaps();
-    mExtensions = mRenderer->getRendererExtensions();
+    initCaps(clientVersion);
 
     mClientVersion = clientVersion;
 
@@ -69,9 +67,9 @@ Context::Context(int clientVersion, const gl::Context *shareContext, rx::Rendere
     // objects all of whose names are 0.
 
     mTexture2DZero.set(new Texture2D(mRenderer->createTexture2D(), 0));
-    mTextureCubeMapZero.set(new TextureCubeMap(mRenderer, 0));
-    mTexture3DZero.set(new Texture3D(mRenderer, 0));
-    mTexture2DArrayZero.set(new Texture2DArray(mRenderer, 0));
+    mTextureCubeMapZero.set(new TextureCubeMap(mRenderer->createTextureCube(), 0));
+    mTexture3DZero.set(new Texture3D(mRenderer->createTexture3D(), 0));
+    mTexture2DArrayZero.set(new Texture2DArray(mRenderer->createTexture2DArray(), 0));
 
     bindVertexArray(0);
     bindArrayBuffer(0);
@@ -753,30 +751,25 @@ void Context::setFramebufferZero(Framebuffer *buffer)
 
 void Context::setRenderbufferStorage(GLsizei width, GLsizei height, GLenum internalformat, GLsizei samples)
 {
-    const TextureCaps &formatCaps = getTextureCaps().get(internalformat);
+    ASSERT(getTextureCaps().get(internalformat).renderable);
 
     RenderbufferStorage *renderbuffer = NULL;
 
-    if (formatCaps.colorRendering)
-    {
-        renderbuffer = new gl::Colorbuffer(mRenderer,width, height, internalformat, samples);
-    }
-    else if (formatCaps.depthRendering && formatCaps.stencilRendering)
+    if (GetDepthBits(internalformat) > 0 && GetStencilBits(internalformat) > 0)
     {
         renderbuffer = new gl::DepthStencilbuffer(mRenderer, width, height, samples);
     }
-    else if (formatCaps.depthRendering)
+    else if (GetDepthBits(internalformat) > 0)
     {
         renderbuffer = new gl::Depthbuffer(mRenderer, width, height, samples);
     }
-    else if (formatCaps.stencilRendering)
+    else if (GetStencilBits(internalformat) > 0)
     {
         renderbuffer = new gl::Stencilbuffer(mRenderer, width, height, samples);
     }
     else
     {
-        UNREACHABLE();
-        return;
+        renderbuffer = new gl::Colorbuffer(mRenderer, width, height, internalformat, samples);
     }
 
     mState.getCurrentRenderbuffer()->setStorage(renderbuffer);
@@ -2159,7 +2152,7 @@ Texture *Context::getIncompleteTexture(TextureType type)
 
           case TEXTURE_CUBE:
             {
-              TextureCubeMap *incompleteCube = new TextureCubeMap(mRenderer, Texture::INCOMPLETE_TEXTURE_ID);
+              TextureCubeMap *incompleteCube = new TextureCubeMap(mRenderer->createTextureCube(), Texture::INCOMPLETE_TEXTURE_ID);
 
               incompleteCube->setImagePosX(0, 1, 1, GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE, incompleteUnpackState, color);
               incompleteCube->setImageNegX(0, 1, 1, GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE, incompleteUnpackState, color);
@@ -2174,7 +2167,7 @@ Texture *Context::getIncompleteTexture(TextureType type)
 
           case TEXTURE_3D:
             {
-                Texture3D *incomplete3d = new Texture3D(mRenderer, Texture::INCOMPLETE_TEXTURE_ID);
+                Texture3D *incomplete3d = new Texture3D(mRenderer->createTexture3D(), Texture::INCOMPLETE_TEXTURE_ID);
                 incomplete3d->setImage(0, 1, 1, 1, GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE, incompleteUnpackState, color);
 
                 t = incomplete3d;
@@ -2183,7 +2176,7 @@ Texture *Context::getIncompleteTexture(TextureType type)
 
           case TEXTURE_2D_ARRAY:
             {
-                Texture2DArray *incomplete2darray = new Texture2DArray(mRenderer, Texture::INCOMPLETE_TEXTURE_ID);
+                Texture2DArray *incomplete2darray = new Texture2DArray(mRenderer->createTexture2DArray(), Texture::INCOMPLETE_TEXTURE_ID);
                 incomplete2darray->setImage(0, 1, 1, 1, GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE, incompleteUnpackState, color);
 
                 t = incomplete2darray;
@@ -2334,7 +2327,7 @@ const std::string &Context::getRendererString() const
 
 void Context::initExtensionStrings()
 {
-    mExtensionStrings = mExtensions.getStrings(mClientVersion);
+    mExtensionStrings = mExtensions.getStrings();
 
     std::ostringstream combinedStringStream;
     std::copy(mExtensionStrings.begin(), mExtensionStrings.end(), std::ostream_iterator<std::string>(combinedStringStream, " "));
@@ -2511,6 +2504,40 @@ bool Context::hasMappedBuffer(GLenum target) const
     }
     else UNREACHABLE();
     return false;
+}
+
+void Context::initCaps(GLuint clientVersion)
+{
+    mCaps = mRenderer->getRendererCaps();
+
+    mExtensions = mRenderer->getRendererExtensions();
+
+    if (clientVersion < 3)
+    {
+        // Disable ES3+ extensions
+        mExtensions.colorBufferFloat = false;
+    }
+
+    if (clientVersion > 2)
+    {
+        // FIXME(geofflang): Don't support EXT_sRGB in non-ES2 contexts
+        //mExtensions.sRGB = false;
+    }
+
+    const TextureCapsMap &rendererFormats = mRenderer->getRendererTextureCaps();
+    for (TextureCapsMap::const_iterator i = rendererFormats.begin(); i != rendererFormats.end(); i++)
+    {
+        GLenum format = i->first;
+        TextureCaps formatCaps = i->second;
+
+        if (formatCaps.texturable && IsValidInternalFormat(format, mExtensions, clientVersion))
+        {
+            // Update the format caps based on the client version and extensions
+            formatCaps.renderable = IsRenderingSupported(format, mExtensions, clientVersion);
+            formatCaps.filterable = IsFilteringSupported(format, mExtensions, clientVersion);
+            mTextureCaps.insert(format, formatCaps);
+        }
+    }
 }
 
 }

@@ -63,28 +63,18 @@ struct ShaderVariable
     bool staticUse;
 };
 
-// Uniform registers (and element indices) are assigned when outputting shader code
 struct Uniform : public ShaderVariable
 {
     Uniform()
-        : registerIndex(-1),
-          elementIndex(-1)
     {}
 
-    Uniform(GLenum typeIn, GLenum precisionIn, const char *nameIn, unsigned int arraySizeIn,
-            unsigned int registerIndexIn, unsigned int elementIndexIn)
-        : ShaderVariable(typeIn, precisionIn, nameIn, arraySizeIn),
-          registerIndex(registerIndexIn),
-          elementIndex(elementIndexIn)
+    Uniform(GLenum typeIn, GLenum precisionIn, const char *nameIn, unsigned int arraySizeIn)
+        : ShaderVariable(typeIn, precisionIn, nameIn, arraySizeIn)
     {}
 
     bool isStruct() const { return !fields.empty(); }
 
     std::vector<Uniform> fields;
-
-    // HLSL-specific members
-    unsigned int registerIndex;
-    unsigned int elementIndex; // Offset within a register, for struct members
 };
 
 struct Attribute : public ShaderVariable
@@ -136,28 +126,6 @@ struct Varying : public ShaderVariable
     std::string structName;
 };
 
-struct BlockMemberInfo
-{
-    BlockMemberInfo(int offset, int arrayStride, int matrixStride, bool isRowMajorMatrix)
-        : offset(offset),
-          arrayStride(arrayStride),
-          matrixStride(matrixStride),
-          isRowMajorMatrix(isRowMajorMatrix)
-    {}
-
-    static BlockMemberInfo getDefaultBlockInfo()
-    {
-        return BlockMemberInfo(-1, -1, -1, false);
-    }
-
-    int offset;
-    int arrayStride;
-    int matrixStride;
-    bool isRowMajorMatrix;
-};
-
-typedef std::vector<BlockMemberInfo> BlockMemberInfoArray;
-
 struct InterfaceBlock
 {
     InterfaceBlock()
@@ -182,7 +150,6 @@ struct InterfaceBlock
     bool isRowMajorLayout;
     bool staticUse;
     std::vector<InterfaceBlockField> fields;
-    std::vector<BlockMemberInfo> blockInfo;
 };
 
 }

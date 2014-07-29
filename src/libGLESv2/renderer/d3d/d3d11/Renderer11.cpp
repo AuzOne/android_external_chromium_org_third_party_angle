@@ -68,7 +68,10 @@ enum
     MAX_TEXTURE_IMAGE_UNITS_VTF_SM4 = 16
 };
 
-Renderer11::Renderer11(egl::Display *display, HDC hDc) : Renderer(display), mDc(hDc)
+Renderer11::Renderer11(egl::Display *display, EGLNativeDisplayType hDc, EGLint requestedDisplay)
+    : Renderer(display),
+      mDc(hDc),
+      mRequestedDisplay(requestedDisplay)
 {
     mVertexDataManager = NULL;
     mIndexDataManager = NULL;
@@ -152,11 +155,17 @@ EGLint Renderer11::initialize()
         D3D_FEATURE_LEVEL_10_0,
     };
 
+    D3D_DRIVER_TYPE driverType = D3D_DRIVER_TYPE_HARDWARE;
+    if (mRequestedDisplay == EGL_PLATFORM_ANGLE_TYPE_D3D11_WARP_ANGLE)
+    {
+        driverType = D3D_DRIVER_TYPE_WARP;
+    }
+
     HRESULT result = S_OK;
 
 #ifdef _DEBUG
     result = D3D11CreateDevice(NULL,
-                               D3D_DRIVER_TYPE_HARDWARE,
+                               driverType,
                                NULL,
                                D3D11_CREATE_DEVICE_DEBUG,
                                featureLevels,
@@ -175,7 +184,7 @@ EGLint Renderer11::initialize()
 #endif
     {
         result = D3D11CreateDevice(NULL,
-                                   D3D_DRIVER_TYPE_HARDWARE,
+                                   driverType,
                                    NULL,
                                    0,
                                    featureLevels,
@@ -2699,7 +2708,7 @@ bool Renderer11::supportsFastCopyBufferToTexture(GLenum internalFormat) const
     }
 
     // We cannot support direct copies to non-color-renderable formats
-    if (!getRendererTextureCaps().get(internalFormat).colorRendering)
+    if (gl_d3d11::GetRTVFormat(internalFormat) != DXGI_FORMAT_UNKNOWN)
     {
         return false;
     }
@@ -2904,6 +2913,21 @@ TextureStorage *Renderer11::createTextureStorage2DArray(GLenum internalformat, b
 Texture2DImpl *Renderer11::createTexture2D()
 {
     return new TextureD3D_2D(this);
+}
+
+TextureCubeImpl *Renderer11::createTextureCube()
+{
+    return new TextureD3D_Cube(this);
+}
+
+Texture3DImpl *Renderer11::createTexture3D()
+{
+    return new TextureD3D_3D(this);
+}
+
+Texture2DArrayImpl *Renderer11::createTexture2DArray()
+{
+    return new TextureD3D_2DArray(this);
 }
 
 void Renderer11::readTextureData(ID3D11Texture2D *texture, unsigned int subResource, const gl::Rectangle &area, GLenum format,

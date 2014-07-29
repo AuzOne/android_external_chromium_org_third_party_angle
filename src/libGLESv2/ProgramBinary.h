@@ -24,6 +24,11 @@
 #include "libGLESv2/renderer/d3d/VertexDataManager.h"
 #include "libGLESv2/DynamicHLSL.h"
 
+namespace sh
+{
+class HLSLBlockEncoder;
+}
+
 namespace rx
 {
 class ShaderExecutable;
@@ -192,8 +197,6 @@ class ProgramBinary : public RefCountObject
     bool linkVaryings(InfoLog &infoLog, FragmentShader *fragmentShader, VertexShader *vertexShader);
     bool linkAttributes(InfoLog &infoLog, const AttributeBindings &attributeBindings, FragmentShader *fragmentShader, VertexShader *vertexShader);
 
-    typedef std::vector<sh::BlockMemberInfo>::const_iterator BlockInfoItr;
-
     template <class ShaderVarType>
     bool linkValidateFields(InfoLog &infoLog, const std::string &varName, const ShaderVarType &vertexVar, const ShaderVarType &fragmentVar);
     bool linkValidateVariablesBase(InfoLog &infoLog, const std::string &variableName, const sh::ShaderVariable &vertexVariable, const sh::ShaderVariable &fragmentVariable, bool validatePrecision);
@@ -201,9 +204,9 @@ class ProgramBinary : public RefCountObject
     bool linkValidateVariables(InfoLog &infoLog, const std::string &uniformName, const sh::Uniform &vertexUniform, const sh::Uniform &fragmentUniform);
     bool linkValidateVariables(InfoLog &infoLog, const std::string &varyingName, const sh::Varying &vertexVarying, const sh::Varying &fragmentVarying);
     bool linkValidateVariables(InfoLog &infoLog, const std::string &uniformName, const sh::InterfaceBlockField &vertexUniform, const sh::InterfaceBlockField &fragmentUniform);
-    bool linkUniforms(InfoLog &infoLog, const std::vector<sh::Uniform> &vertexUniforms, const std::vector<sh::Uniform> &fragmentUniforms);
-    void defineUniformBase(GLenum shader, const sh::Uniform &uniform);
-    void defineUniform(GLenum shader, const sh::Uniform &uniform, const std::string &fullName, unsigned int baseRegisterIndex);
+    bool linkUniforms(InfoLog &infoLog, const VertexShader &vertexShader, const FragmentShader &fragmentShader);
+    void defineUniformBase(GLenum shader, const sh::Uniform &uniform, unsigned int uniformRegister);
+    void defineUniform(GLenum shader, const sh::Uniform &uniform, const std::string &fullName, sh::HLSLBlockEncoder *encoder);
     bool indexSamplerUniform(const LinkedUniform &uniform, InfoLog &infoLog);
     bool indexUniforms(InfoLog &infoLog);
     static bool assignSamplers(unsigned int startSamplerIndex, GLenum samplerType, unsigned int samplerCount,
@@ -214,7 +217,8 @@ class ProgramBinary : public RefCountObject
                                                const std::vector<std::string> &transformFeedbackVaryingNames,
                                                GLenum transformFeedbackBufferMode,
                                                std::vector<LinkedVarying> *outTransformFeedbackLinkedVaryings) const;
-    void defineUniformBlockMembers(const std::vector<sh::InterfaceBlockField> &fields, const std::string &prefix, int blockIndex, BlockInfoItr *blockInfoItr, std::vector<unsigned int> *blockUniformIndexes);
+    void defineUniformBlockMembers(const std::vector<sh::InterfaceBlockField> &fields, const std::string &prefix, int blockIndex,
+                                   sh::BlockLayoutEncoder *encoder, std::vector<unsigned int> *blockUniformIndexes);
     bool defineUniformBlock(InfoLog &infoLog, const Shader &shader, const sh::InterfaceBlock &interfaceBlock);
     bool assignUniformBlockRegister(InfoLog &infoLog, UniformBlock *uniformBlock, GLenum shader, unsigned int registerIndex);
     void defineOutputVariables(FragmentShader *fragmentShader);

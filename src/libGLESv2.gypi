@@ -147,6 +147,8 @@
             'libGLESv2/renderer/d3d/IndexBuffer.h',
             'libGLESv2/renderer/d3d/IndexDataManager.cpp',
             'libGLESv2/renderer/d3d/IndexDataManager.h',
+            'libGLESv2/renderer/d3d/MemoryBuffer.cpp',
+            'libGLESv2/renderer/d3d/MemoryBuffer.h',
             'libGLESv2/renderer/d3d/TextureD3D.cpp',
             'libGLESv2/renderer/d3d/TextureD3D.h',
             'libGLESv2/renderer/d3d/TextureStorage.cpp',
@@ -316,7 +318,7 @@
                         'GL_APICALL=',
                         'GL_GLEXT_PROTOTYPES=',
                         'EGLAPI=',
-                        'ANGLE_PRELOADED_D3DCOMPILER_MODULE_NAMES={ TEXT("d3dcompiler_46.dll"), TEXT("d3dcompiler_43.dll") }',
+                        'ANGLE_PRELOADED_D3DCOMPILER_MODULE_NAMES={ "d3dcompiler_46.dll", "d3dcompiler_43.dll" }',
                     ],
                     'conditions':
                     [

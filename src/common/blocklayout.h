@@ -19,20 +19,45 @@ namespace sh
 {
 struct ShaderVariable;
 struct InterfaceBlockField;
-struct BlockMemberInfo;
 struct Uniform;
 struct Varying;
 struct InterfaceBlock;
 
+struct BlockMemberInfo
+{
+    BlockMemberInfo(int offset, int arrayStride, int matrixStride, bool isRowMajorMatrix)
+        : offset(offset),
+          arrayStride(arrayStride),
+          matrixStride(matrixStride),
+          isRowMajorMatrix(isRowMajorMatrix)
+    {}
+
+    static BlockMemberInfo getDefaultBlockInfo()
+    {
+        return BlockMemberInfo(-1, -1, -1, false);
+    }
+
+    int offset;
+    int arrayStride;
+    int matrixStride;
+    bool isRowMajorMatrix;
+};
+
 class BlockLayoutEncoder
 {
   public:
-    BlockLayoutEncoder(std::vector<BlockMemberInfo> *blockInfoOut);
+    BlockLayoutEncoder();
 
     void encodeInterfaceBlockFields(const std::vector<InterfaceBlockField> &fields);
-    void encodeInterfaceBlockField(const InterfaceBlockField &field);
+    BlockMemberInfo encodeInterfaceBlockField(const InterfaceBlockField &field);
     void encodeType(GLenum type, unsigned int arraySize, bool isRowMajorMatrix);
+
     size_t getBlockSize() const { return mCurrentOffset * BytesPerComponent; }
+    size_t getCurrentRegister() const { return mCurrentOffset / ComponentsPerRegister; }
+    size_t getCurrentElement() const { return mCurrentOffset % ComponentsPerRegister; }
+
+    virtual void enterAggregateType() = 0;
+    virtual void exitAggregateType() = 0;
 
     static const size_t BytesPerComponent = 4u;
     static const unsigned int ComponentsPerRegister = 4u;
@@ -42,13 +67,8 @@ class BlockLayoutEncoder
 
     void nextRegister();
 
-    virtual void enterAggregateType() = 0;
-    virtual void exitAggregateType() = 0;
     virtual void getBlockLayoutInfo(GLenum type, unsigned int arraySize, bool isRowMajorMatrix, int *arrayStrideOut, int *matrixStrideOut) = 0;
     virtual void advanceOffset(GLenum type, unsigned int arraySize, bool isRowMajorMatrix, int arrayStride, int matrixStride) = 0;
-
-  private:
-    std::vector<BlockMemberInfo> *mBlockInfoOut;
 };
 
 // Block layout according to the std140 block layout
@@ -57,11 +77,12 @@ class BlockLayoutEncoder
 class Std140BlockEncoder : public BlockLayoutEncoder
 {
   public:
-    Std140BlockEncoder(std::vector<BlockMemberInfo> *blockInfoOut);
+    Std140BlockEncoder();
 
-  protected:
     virtual void enterAggregateType();
     virtual void exitAggregateType();
+
+  protected:
     virtual void getBlockLayoutInfo(GLenum type, unsigned int arraySize, bool isRowMajorMatrix, int *arrayStrideOut, int *matrixStrideOut);
     virtual void advanceOffset(GLenum type, unsigned int arraySize, bool isRowMajorMatrix, int arrayStride, int matrixStride);
 };
@@ -80,8 +101,7 @@ class HLSLBlockEncoder : public BlockLayoutEncoder
         ENCODE_LOOSE
     };
 
-    HLSLBlockEncoder(std::vector<BlockMemberInfo> *blockInfoOut,
-                     HLSLBlockEncoderStrategy strategy);
+    HLSLBlockEncoder(HLSLBlockEncoderStrategy strategy);
 
     virtual void enterAggregateType();
     virtual void exitAggregateType();
@@ -89,19 +109,14 @@ class HLSLBlockEncoder : public BlockLayoutEncoder
 
     bool isPacked() const { return mEncoderStrategy == ENCODE_PACKED; }
 
+    static HLSLBlockEncoderStrategy GetStrategyFor(ShShaderOutput outputType);
+
   protected:
     virtual void getBlockLayoutInfo(GLenum type, unsigned int arraySize, bool isRowMajorMatrix, int *arrayStrideOut, int *matrixStrideOut);
     virtual void advanceOffset(GLenum type, unsigned int arraySize, bool isRowMajorMatrix, int arrayStride, int matrixStride);
 
     HLSLBlockEncoderStrategy mEncoderStrategy;
 };
-
-// This method returns the data size of an interface block in HLSL, according to its layout.
-size_t HLSLInterfaceBlockDataSize(const sh::InterfaceBlock &interfaceBlock);
-
-// This method assigns values to the variable's "registerIndex" and "elementIndex" fields.
-// "elementIndex" is only used for structures.
-void HLSLVariableGetRegisterInfo(unsigned int baseRegisterIndex, Uniform *variable, ShShaderOutput outputType);
 
 // This method returns the number of used registers for a ShaderVariable. It is dependent on the HLSLBlockEncoder
 // class to count the number of used registers in a struct (which are individually packed according to the same rules).

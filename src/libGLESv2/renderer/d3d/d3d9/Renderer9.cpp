@@ -94,7 +94,9 @@ enum
     MAX_TEXTURE_IMAGE_UNITS_VTF_SM3 = 4
 };
 
-Renderer9::Renderer9(egl::Display *display, HDC hDc) : Renderer(display), mDc(hDc)
+Renderer9::Renderer9(egl::Display *display, EGLNativeDisplayType hDc, EGLint requestedDisplay)
+    : Renderer(display),
+      mDc(hDc)
 {
     mD3d9Module = NULL;
 
@@ -3197,6 +3199,21 @@ TextureStorage *Renderer9::createTextureStorage2DArray(GLenum internalformat, bo
 Texture2DImpl *Renderer9::createTexture2D()
 {
     return new TextureD3D_2D(this);
+}
+
+TextureCubeImpl *Renderer9::createTextureCube()
+{
+    return new TextureD3D_Cube(this);
+}
+
+Texture3DImpl *Renderer9::createTexture3D()
+{
+    return new TextureD3D_3D(this);
+}
+
+Texture2DArrayImpl *Renderer9::createTexture2DArray()
+{
+    return new TextureD3D_2DArray(this);
 }
 
 bool Renderer9::getLUID(LUID *adapterLuid) const

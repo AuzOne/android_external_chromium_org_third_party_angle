@@ -57,8 +57,10 @@ class RenderTarget;
 class Image;
 class TextureStorage;
 class UniformStorage;
-
 class Texture2DImpl;
+class TextureCubeImpl;
+class Texture3DImpl;
+class Texture2DArrayImpl;
 
 struct ConfigDesc
 {
@@ -229,6 +231,9 @@ class Renderer
 
     // Texture creation
     virtual Texture2DImpl *createTexture2D() = 0;
+    virtual TextureCubeImpl *createTextureCube() = 0;
+    virtual Texture3DImpl *createTexture3D() = 0;
+    virtual Texture2DArrayImpl *createTexture2DArray() = 0;
 
     // Buffer creation
     virtual BufferImpl *createBuffer() = 0;

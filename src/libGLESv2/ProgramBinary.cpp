@@ -1497,7 +1497,7 @@ bool ProgramBinary::save(void* binary, GLsizei bufSize, GLsizei *length)
         size_t vertexShaderSize = vertexExecutable->shaderExecutable()->getLength();
         stream.writeInt(vertexShaderSize);
 
-        unsigned char *vertexBlob = static_cast<unsigned char *>(vertexExecutable->shaderExecutable()->getFunction());
+        const uint8_t *vertexBlob = vertexExecutable->shaderExecutable()->getFunction();
         stream.writeBytes(vertexBlob, vertexShaderSize);
     }
 
@@ -1530,7 +1530,7 @@ bool ProgramBinary::save(void* binary, GLsizei bufSize, GLsizei *length)
         size_t pixelShaderSize = pixelExecutable->shaderExecutable()->getLength();
         stream.writeInt(pixelShaderSize);
 
-        unsigned char *pixelBlob = static_cast<unsigned char *>(pixelExecutable->shaderExecutable()->getFunction());
+        const uint8_t *pixelBlob = pixelExecutable->shaderExecutable()->getFunction();
         stream.writeBytes(pixelBlob, pixelShaderSize);
     }
 
@@ -1539,7 +1539,7 @@ bool ProgramBinary::save(void* binary, GLsizei bufSize, GLsizei *length)
 
     if (mGeometryExecutable != NULL && geometryShaderSize > 0)
     {
-        unsigned char *geometryBlob = static_cast<unsigned char *>(mGeometryExecutable->getFunction());
+        const uint8_t *geometryBlob = mGeometryExecutable->getFunction();
         stream.writeBytes(geometryBlob, geometryShaderSize);
     }
 
@@ -1648,7 +1648,7 @@ bool ProgramBinary::link(InfoLog &infoLog, const AttributeBindings &attributeBin
         success = false;
     }
 
-    if (!linkUniforms(infoLog, vertexShader->getUniforms(), fragmentShader->getUniforms()))
+    if (!linkUniforms(infoLog, *vertexShader, *fragmentShader))
     {
         success = false;
     }
@@ -1656,9 +1656,11 @@ bool ProgramBinary::link(InfoLog &infoLog, const AttributeBindings &attributeBin
     // special case for gl_DepthRange, the only built-in uniform (also a struct)
     if (vertexShader->usesDepthRange() || fragmentShader->usesDepthRange())
     {
-        mUniforms.push_back(new LinkedUniform(GL_FLOAT, GL_HIGH_FLOAT, "gl_DepthRange.near", 0, -1, sh::BlockMemberInfo::getDefaultBlockInfo()));
-        mUniforms.push_back(new LinkedUniform(GL_FLOAT, GL_HIGH_FLOAT, "gl_DepthRange.far", 0, -1, sh::BlockMemberInfo::getDefaultBlockInfo()));
-        mUniforms.push_back(new LinkedUniform(GL_FLOAT, GL_HIGH_FLOAT, "gl_DepthRange.diff", 0, -1, sh::BlockMemberInfo::getDefaultBlockInfo()));
+        const sh::BlockMemberInfo &defaultInfo = sh::BlockMemberInfo::getDefaultBlockInfo();
+
+        mUniforms.push_back(new LinkedUniform(GL_FLOAT, GL_HIGH_FLOAT, "gl_DepthRange.near", 0, -1, defaultInfo));
+        mUniforms.push_back(new LinkedUniform(GL_FLOAT, GL_HIGH_FLOAT, "gl_DepthRange.far", 0, -1, defaultInfo));
+        mUniforms.push_back(new LinkedUniform(GL_FLOAT, GL_HIGH_FLOAT, "gl_DepthRange.diff", 0, -1, defaultInfo));
     }
 
     if (!linkUniformBlocks(infoLog, *vertexShader, *fragmentShader))
@@ -1900,8 +1902,11 @@ bool ProgramBinary::linkValidateVariables(InfoLog &infoLog, const std::string &u
     return true;
 }
 
-bool ProgramBinary::linkUniforms(InfoLog &infoLog, const std::vector<sh::Uniform> &vertexUniforms, const std::vector<sh::Uniform> &fragmentUniforms)
+bool ProgramBinary::linkUniforms(InfoLog &infoLog, const VertexShader &vertexShader, const FragmentShader &fragmentShader)
 {
+    const std::vector<sh::Uniform> &vertexUniforms = vertexShader.getUniforms();
+    const std::vector<sh::Uniform> &fragmentUniforms = fragmentShader.getUniforms();
+
     // Check that uniforms defined in the vertex and fragment shaders are identical
     typedef std::map<std::string, const sh::Uniform*> UniformMap;
     UniformMap linkedUniforms;
@@ -1929,12 +1934,14 @@ bool ProgramBinary::linkUniforms(InfoLog &infoLog, const std::vector<sh::Uniform
 
     for (unsigned int uniformIndex = 0; uniformIndex < vertexUniforms.size(); uniformIndex++)
     {
-        defineUniformBase(GL_VERTEX_SHADER, vertexUniforms[uniformIndex]);
+        const sh::Uniform &uniform = vertexUniforms[uniformIndex];
+        defineUniformBase(GL_VERTEX_SHADER, uniform, vertexShader.getUniformRegister(uniform.name));
     }
 
     for (unsigned int uniformIndex = 0; uniformIndex < fragmentUniforms.size(); uniformIndex++)
     {
-        defineUniformBase(GL_FRAGMENT_SHADER, fragmentUniforms[uniformIndex]);
+        const sh::Uniform &uniform = fragmentUniforms[uniformIndex];
+        defineUniformBase(GL_FRAGMENT_SHADER, uniform, fragmentShader.getUniformRegister(uniform.name));
     }
 
     if (!indexUniforms(infoLog))
@@ -1947,46 +1954,45 @@ bool ProgramBinary::linkUniforms(InfoLog &infoLog, const std::vector<sh::Uniform
     return true;
 }
 
-void ProgramBinary::defineUniformBase(GLenum shader, const sh::Uniform &uniform)
+void ProgramBinary::defineUniformBase(GLenum shader, const sh::Uniform &uniform, unsigned int uniformRegister)
 {
-    defineUniform(shader, uniform, uniform.name, uniform.registerIndex);
+    ShShaderOutput outputType = Shader::getCompilerOutputType(shader);
+    sh::HLSLBlockEncoder encoder(sh::HLSLBlockEncoder::GetStrategyFor(outputType));
+    encoder.skipRegisters(uniformRegister);
+
+    defineUniform(shader, uniform, uniform.name, &encoder);
 }
 
 void ProgramBinary::defineUniform(GLenum shader, const sh::Uniform &uniform,
-                                  const std::string &fullName, unsigned int baseRegisterIndex)
+                                  const std::string &fullName, sh::HLSLBlockEncoder *encoder)
 {
     if (uniform.isStruct())
     {
-        if (uniform.arraySize > 0)
+        for (unsigned int elementIndex = 0; elementIndex < uniform.elementCount(); elementIndex++)
         {
-            ShShaderOutput outputType = Shader::getCompilerOutputType(shader);
-            const unsigned int elementRegisterCount = HLSLVariableRegisterCount(uniform, outputType) / uniform.arraySize;
+            const std::string &elementString = (uniform.isArray() ? ArrayString(elementIndex) : "");
 
-            for (unsigned int elementIndex = 0; elementIndex < uniform.arraySize; elementIndex++)
-            {
-                const unsigned int elementRegisterOffset = elementRegisterCount * elementIndex;
+            encoder->enterAggregateType();
 
-                for (size_t fieldIndex = 0; fieldIndex < uniform.fields.size(); fieldIndex++)
-                {
-                    const sh::Uniform &field = uniform.fields[fieldIndex];
-                    const std::string &fieldFullName = fullName + ArrayString(elementIndex) + "." + field.name;
-                    const unsigned int fieldRegisterIndex = field.registerIndex + elementRegisterOffset;
-                    defineUniform(shader, field, fieldFullName, fieldRegisterIndex);
-                }
-            }
-        }
-        else
-        {
             for (size_t fieldIndex = 0; fieldIndex < uniform.fields.size(); fieldIndex++)
             {
                 const sh::Uniform &field = uniform.fields[fieldIndex];
-                const std::string &fieldFullName = fullName + "." + field.name;
-                defineUniform(shader, field, fieldFullName, field.registerIndex);
+                const std::string &fieldFullName = (fullName + elementString + "." + field.name);
+
+                defineUniform(shader, field, fieldFullName, encoder);
             }
+
+            encoder->exitAggregateType();
         }
     }
     else // Not a struct
     {
+        // Arrays are treated as aggregate types
+        if (uniform.isArray())
+        {
+            encoder->enterAggregateType();
+        }
+
         LinkedUniform *linkedUniform = getUniformByName(fullName);
 
         if (!linkedUniform)
@@ -1994,19 +2000,30 @@ void ProgramBinary::defineUniform(GLenum shader, const sh::Uniform &uniform,
             linkedUniform = new LinkedUniform(uniform.type, uniform.precision, fullName, uniform.arraySize,
                                               -1, sh::BlockMemberInfo::getDefaultBlockInfo());
             ASSERT(linkedUniform);
-            linkedUniform->registerElement = uniform.elementIndex;
+            linkedUniform->registerElement = encoder->getCurrentElement();
             mUniforms.push_back(linkedUniform);
         }
 
+        ASSERT(linkedUniform->registerElement == encoder->getCurrentElement());
+
         if (shader == GL_FRAGMENT_SHADER)
         {
-            linkedUniform->psRegisterIndex = baseRegisterIndex;
+            linkedUniform->psRegisterIndex = encoder->getCurrentRegister();
         }
         else if (shader == GL_VERTEX_SHADER)
         {
-            linkedUniform->vsRegisterIndex = baseRegisterIndex;
+            linkedUniform->vsRegisterIndex = encoder->getCurrentRegister();
         }
         else UNREACHABLE();
+
+        // Advance the uniform offset, to track registers allocation for structs
+        encoder->encodeType(uniform.type, uniform.arraySize, false);
+
+        // Arrays are treated as aggregate types
+        if (uniform.isArray())
+        {
+            encoder->exitAggregateType();
+        }
     }
 }
 
@@ -2263,37 +2280,36 @@ bool ProgramBinary::gatherTransformFeedbackLinkedVaryings(InfoLog &infoLog, cons
     return true;
 }
 
-void ProgramBinary::defineUniformBlockMembers(const std::vector<sh::InterfaceBlockField> &fields, const std::string &prefix, int blockIndex, BlockInfoItr *blockInfoItr, std::vector<unsigned int> *blockUniformIndexes)
+void ProgramBinary::defineUniformBlockMembers(const std::vector<sh::InterfaceBlockField> &fields, const std::string &prefix, int blockIndex,
+                                              sh::BlockLayoutEncoder *encoder, std::vector<unsigned int> *blockUniformIndexes)
 {
     for (unsigned int uniformIndex = 0; uniformIndex < fields.size(); uniformIndex++)
     {
         const sh::InterfaceBlockField &field = fields[uniformIndex];
         const std::string &fieldName = (prefix.empty() ? field.name : prefix + "." + field.name);
 
-        if (!field.fields.empty())
+        if (field.isStruct())
         {
-            if (field.arraySize > 0)
+            for (unsigned int arrayElement = 0; arrayElement < field.elementCount(); arrayElement++)
             {
-                for (unsigned int arrayElement = 0; arrayElement < field.arraySize; arrayElement++)
-                {
-                    const std::string uniformElementName = fieldName + ArrayString(arrayElement);
-                    defineUniformBlockMembers(field.fields, uniformElementName, blockIndex, blockInfoItr, blockUniformIndexes);
-                }
-            }
-            else
-            {
-                defineUniformBlockMembers(field.fields, fieldName, blockIndex, blockInfoItr, blockUniformIndexes);
+                encoder->enterAggregateType();
+
+                const std::string uniformElementName = fieldName + (field.isArray() ? ArrayString(arrayElement) : "");
+                defineUniformBlockMembers(field.fields, uniformElementName, blockIndex, encoder, blockUniformIndexes);
+
+                encoder->exitAggregateType();
             }
         }
         else
         {
+            sh::BlockMemberInfo memberInfo = encoder->encodeInterfaceBlockField(field);
+
             LinkedUniform *newUniform = new LinkedUniform(field.type, field.precision, fieldName, field.arraySize,
-                                                          blockIndex, **blockInfoItr);
+                                                          blockIndex, memberInfo);
 
             // add to uniform list, but not index, since uniform block uniforms have no location
             blockUniformIndexes->push_back(mUniforms.size());
             mUniforms.push_back(newUniform);
-            (*blockInfoItr)++;
         }
     }
 }
@@ -2307,10 +2323,21 @@ bool ProgramBinary::defineUniformBlock(InfoLog &infoLog, const Shader &shader, c
         const unsigned int blockIndex = mUniformBlocks.size();
 
         // define member uniforms
-        BlockInfoItr blockInfoItr = interfaceBlock.blockInfo.cbegin();
-        defineUniformBlockMembers(interfaceBlock.fields, "", blockIndex, &blockInfoItr, &blockUniformIndexes);
+        sh::BlockLayoutEncoder *encoder = NULL;
 
-        size_t dataSize = sh::HLSLInterfaceBlockDataSize(interfaceBlock);
+        if (interfaceBlock.layout == sh::BLOCKLAYOUT_STANDARD)
+        {
+            encoder = new sh::Std140BlockEncoder;
+        }
+        else
+        {
+            encoder = new sh::HLSLBlockEncoder(sh::HLSLBlockEncoder::ENCODE_PACKED);
+        }
+        ASSERT(encoder);
+
+        defineUniformBlockMembers(interfaceBlock.fields, "", blockIndex, encoder, &blockUniformIndexes);
+
+        size_t dataSize = encoder->getBlockSize();
 
         // create all the uniform blocks
         if (interfaceBlock.arraySize > 0)
