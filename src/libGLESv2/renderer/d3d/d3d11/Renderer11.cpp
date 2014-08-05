@@ -91,8 +91,6 @@ Renderer11::Renderer11(egl::Display *display, EGLNativeDisplayType hDc, EGLint r
 
     mDeviceLost = false;
 
-    mMaxSupportedSamples = 0;
-
     mDevice = NULL;
     mDeviceContext = NULL;
     mDxgiAdapter = NULL;
@@ -282,16 +280,6 @@ EGLint Renderer11::initialize()
         SafeRelease(infoQueue);
     }
 #endif
-
-    mMaxSupportedSamples = 0;
-
-    const d3d11::DXGIFormatSet &dxgiFormats = d3d11::GetAllUsedDXGIFormats();
-    for (d3d11::DXGIFormatSet::const_iterator i = dxgiFormats.begin(); i != dxgiFormats.end(); ++i)
-    {
-        MultisampleSupportInfo support = getMultisampleSupportInfo(*i);
-        mMultisampleSupportMap.insert(std::make_pair(*i, support));
-        mMaxSupportedSamples = std::max(mMaxSupportedSamples, support.maxSupportedSamples);
-    }
 
     initializeDevice();
 
@@ -510,7 +498,9 @@ void Renderer11::setTexture(gl::SamplerType type, int index, gl::Texture *textur
         // missing the shader resource view
         ASSERT(textureSRV != NULL);
 
-        forceSetTexture = texture->hasDirtyImages();
+        TextureD3D* textureImpl = TextureD3D::makeTextureD3D(texture->getImplementation());
+        forceSetTexture = textureImpl->hasDirtyImages();
+        textureImpl->resetDirty();
     }
 
     if (type == gl::SAMPLER_PIXEL)
@@ -968,10 +958,8 @@ GLenum Renderer11::applyIndexBuffer(const GLvoid *indices, gl::Buffer *elementAr
 
     if (err == GL_NO_ERROR)
     {
-        IndexBuffer11* indexBuffer = IndexBuffer11::makeIndexBuffer11(indexInfo->indexBuffer);
-
         ID3D11Buffer *buffer = NULL;
-        DXGI_FORMAT bufferFormat = indexBuffer->getIndexFormat();
+        DXGI_FORMAT bufferFormat = (indexInfo->indexType == GL_UNSIGNED_INT) ? DXGI_FORMAT_R32_UINT : DXGI_FORMAT_R16_UINT;
 
         if (indexInfo->storage)
         {
@@ -980,6 +968,7 @@ GLenum Renderer11::applyIndexBuffer(const GLvoid *indices, gl::Buffer *elementAr
         }
         else
         {
+            IndexBuffer11* indexBuffer = IndexBuffer11::makeIndexBuffer11(indexInfo->indexBuffer);
             buffer = indexBuffer->getBuffer();
         }
 
@@ -1203,7 +1192,7 @@ void Renderer11::drawLineLoop(GLsizei count, GLenum type, const GLvoid *indices,
 
     if (mAppliedIB != d3dIndexBuffer || mAppliedIBFormat != indexFormat || mAppliedIBOffset != indexBufferOffset)
     {
-        mDeviceContext->IASetIndexBuffer(indexBuffer->getBuffer(), indexBuffer->getIndexFormat(), indexBufferOffset);
+        mDeviceContext->IASetIndexBuffer(d3dIndexBuffer, indexFormat, indexBufferOffset);
         mAppliedIB = d3dIndexBuffer;
         mAppliedIBFormat = indexFormat;
         mAppliedIBOffset = indexBufferOffset;
@@ -1314,7 +1303,7 @@ void Renderer11::drawTriangleFan(GLsizei count, GLenum type, const GLvoid *indic
 
     if (mAppliedIB != d3dIndexBuffer || mAppliedIBFormat != indexFormat || mAppliedIBOffset != indexBufferOffset)
     {
-        mDeviceContext->IASetIndexBuffer(indexBuffer->getBuffer(), indexBuffer->getIndexFormat(), indexBufferOffset);
+        mDeviceContext->IASetIndexBuffer(d3dIndexBuffer, indexFormat, indexBufferOffset);
         mAppliedIB = d3dIndexBuffer;
         mAppliedIBFormat = indexFormat;
         mAppliedIBOffset = indexBufferOffset;
@@ -2038,94 +2027,6 @@ int Renderer11::getMinSwapInterval() const
 int Renderer11::getMaxSwapInterval() const
 {
     return 4;
-}
-
-int Renderer11::getMaxSupportedSamples() const
-{
-    return mMaxSupportedSamples;
-}
-
-GLsizei Renderer11::getMaxSupportedFormatSamples(GLenum internalFormat) const
-{
-    DXGI_FORMAT format = gl_d3d11::GetRenderableFormat(internalFormat);
-    MultisampleSupportMap::const_iterator iter = mMultisampleSupportMap.find(format);
-    return (iter != mMultisampleSupportMap.end()) ? iter->second.maxSupportedSamples : 0;
-}
-
-GLsizei Renderer11::getNumSampleCounts(GLenum internalFormat) const
-{
-    unsigned int numCounts = 0;
-
-    // D3D11 supports multisampling for signed and unsigned format, but ES 3.0 does not
-    GLenum componentType = gl::GetComponentType(internalFormat);
-    if (componentType != GL_INT && componentType != GL_UNSIGNED_INT)
-    {
-        DXGI_FORMAT format = gl_d3d11::GetRenderableFormat(internalFormat);
-        MultisampleSupportMap::const_iterator iter = mMultisampleSupportMap.find(format);
-
-        if (iter != mMultisampleSupportMap.end())
-        {
-            const MultisampleSupportInfo& info = iter->second;
-            for (int i = 0; i < D3D11_MAX_MULTISAMPLE_SAMPLE_COUNT; i++)
-            {
-                if (info.qualityLevels[i] > 0)
-                {
-                    numCounts++;
-                }
-            }
-        }
-    }
-
-    return numCounts;
-}
-
-void Renderer11::getSampleCounts(GLenum internalFormat, GLsizei bufSize, GLint *params) const
-{
-    // D3D11 supports multisampling for signed and unsigned format, but ES 3.0 does not
-    GLenum componentType = gl::GetComponentType(internalFormat);
-    if (componentType == GL_INT || componentType == GL_UNSIGNED_INT)
-    {
-        return;
-    }
-
-    DXGI_FORMAT format = gl_d3d11::GetRenderableFormat(internalFormat);
-    MultisampleSupportMap::const_iterator iter = mMultisampleSupportMap.find(format);
-
-    if (iter != mMultisampleSupportMap.end())
-    {
-        const MultisampleSupportInfo& info = iter->second;
-        int bufPos = 0;
-        for (int i = D3D11_MAX_MULTISAMPLE_SAMPLE_COUNT - 1; i >= 0 && bufPos < bufSize; i--)
-        {
-            if (info.qualityLevels[i] > 0)
-            {
-                params[bufPos++] = i + 1;
-            }
-        }
-    }
-}
-
-int Renderer11::getNearestSupportedSamples(DXGI_FORMAT format, unsigned int requested) const
-{
-    if (requested == 0)
-    {
-        return 0;
-    }
-
-    MultisampleSupportMap::const_iterator iter = mMultisampleSupportMap.find(format);
-    if (iter != mMultisampleSupportMap.end())
-    {
-        const MultisampleSupportInfo& info = iter->second;
-        for (unsigned int i = requested - 1; i < D3D11_MAX_MULTISAMPLE_SAMPLE_COUNT; i++)
-        {
-            if (info.qualityLevels[i] > 0)
-            {
-                return i + 1;
-            }
-        }
-    }
-
-    return -1;
 }
 
 bool Renderer11::copyToRenderTarget(TextureStorageInterface2D *dest, TextureStorageInterface2D *source)
@@ -3407,33 +3308,6 @@ rx::VertexConversionType Renderer11::getVertexConversionType(const gl::VertexFor
 GLenum Renderer11::getVertexComponentType(const gl::VertexFormat &vertexFormat) const
 {
     return d3d11::GetComponentType(gl_d3d11::GetNativeVertexFormat(vertexFormat));
-}
-
-Renderer11::MultisampleSupportInfo Renderer11::getMultisampleSupportInfo(DXGI_FORMAT format)
-{
-    MultisampleSupportInfo supportInfo = { 0 };
-
-    UINT formatSupport;
-    HRESULT result;
-
-    result = mDevice->CheckFormatSupport(format, &formatSupport);
-    if (SUCCEEDED(result) && (formatSupport & D3D11_FORMAT_SUPPORT_MULTISAMPLE_RENDERTARGET))
-    {
-        for (unsigned int i = 1; i <= D3D11_MAX_MULTISAMPLE_SAMPLE_COUNT; i++)
-        {
-            result = mDevice->CheckMultisampleQualityLevels(format, i, &supportInfo.qualityLevels[i - 1]);
-            if (SUCCEEDED(result) && supportInfo.qualityLevels[i - 1] > 0)
-            {
-                supportInfo.maxSupportedSamples = std::max(supportInfo.maxSupportedSamples, i);
-            }
-            else
-            {
-                supportInfo.qualityLevels[i - 1] = 0;
-            }
-        }
-    }
-
-    return supportInfo;
 }
 
 void Renderer11::generateCaps(gl::Caps *outCaps, gl::TextureCapsMap *outTextureCaps, gl::Extensions *outExtensions) const
