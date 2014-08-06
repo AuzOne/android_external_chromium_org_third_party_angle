@@ -253,7 +253,7 @@ ClearParameters State::getClearParameters(GLbitfield mask) const
                 return nullClearParam;
             }
 
-            if (GetStencilBits(depthStencil->getActualFormat()) > 0)
+            if (GetInternalFormatInfo(depthStencil->getActualFormat()).stencilBits > 0)
             {
                 clearParams.clearStencil = true;
             }
@@ -1410,6 +1410,29 @@ bool State::getIndexedInteger64v(GLenum target, GLuint index, GLint64 *data)
     }
 
     return true;
+}
+
+bool State::hasMappedBuffer(GLenum target) const
+{
+    if (target == GL_ARRAY_BUFFER)
+    {
+        for (unsigned int attribIndex = 0; attribIndex < gl::MAX_VERTEX_ATTRIBS; attribIndex++)
+        {
+            const gl::VertexAttribute &vertexAttrib = getVertexAttribState(attribIndex);
+            gl::Buffer *boundBuffer = vertexAttrib.buffer.get();
+            if (vertexAttrib.enabled && boundBuffer && boundBuffer->isMapped())
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+    else
+    {
+        Buffer *buffer = getTargetBuffer(target);
+        return (buffer && buffer->isMapped());
+    }
 }
 
 }
