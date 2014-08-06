@@ -28,6 +28,7 @@ LOCAL_SRC_FILES := \
 	third_party/angle/src/common/debug.cpp \
 	third_party/angle/src/common/event_tracer.cpp \
 	third_party/angle/src/common/mathutil.cpp \
+	third_party/angle/src/common/shadervars.cpp \
 	third_party/angle/src/common/tls.cpp \
 	third_party/angle/src/common/utilities.cpp \
 	third_party/angle/src/compiler/translator/BuiltInFunctionEmulator.cpp \
