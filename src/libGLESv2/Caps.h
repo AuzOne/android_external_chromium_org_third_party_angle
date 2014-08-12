@@ -17,29 +17,45 @@
 namespace gl
 {
 
+typedef std::set<GLuint> SupportedSampleSet;
+
 struct TextureCaps
 {
     TextureCaps();
 
-    bool texture2D;
-    bool textureCubeMap;
-    bool texture3D;
-    bool texture2DArray;
-    bool filtering;
-    bool colorRendering;
-    bool depthRendering;
-    bool stencilRendering;
+    // Supports for basic texturing: glTexImage, glTexSubImage, etc
+    bool texturable;
 
-    std::set<GLuint> sampleCounts;
+    // Support for linear or anisotropic filtering
+    bool filterable;
+
+    // Support for being used as a framebuffer attachment or renderbuffer format
+    bool renderable;
+
+    SupportedSampleSet sampleCounts;
+
+    // Get the maximum number of samples supported
+    GLuint getMaxSamples() const;
+
+    // Get the number of supported samples that is at least as many as requested.  Returns 0 if
+    // there are no sample counts available
+    GLuint getNearestSamples(GLuint requestedSamples) const;
 };
 
 class TextureCapsMap
 {
   public:
+    typedef std::unordered_map<GLenum, TextureCaps>::const_iterator const_iterator;
+
     void insert(GLenum internalFormat, const TextureCaps &caps);
     void remove(GLenum internalFormat);
 
     const TextureCaps &get(GLenum internalFormat) const;
+
+    const_iterator begin() const;
+    const_iterator end() const;
+
+    size_t size() const;
 
   private:
     typedef std::unordered_map<GLenum, TextureCaps> InternalFormatToCapsMap;
@@ -51,7 +67,7 @@ struct Extensions
     Extensions();
 
     // Generate a vector of supported extension strings
-    std::vector<std::string> getStrings(GLuint clientVersion) const;
+    std::vector<std::string> getStrings() const;
 
     // Set all texture related extension support based on the supported textures.
     // Determines support for:
@@ -61,6 +77,7 @@ struct Extensions
     // GL_OES_texture_float, GL_OES_texture_float_linear
     // GL_EXT_texture_rg
     // GL_EXT_texture_compression_dxt1, GL_ANGLE_texture_compression_dxt3, GL_ANGLE_texture_compression_dxt5
+    // GL_EXT_sRGB
     // GL_ANGLE_depth_texture
     // GL_EXT_color_buffer_float
     void setTextureExtensionSupport(const TextureCapsMap &textureCaps);
@@ -159,6 +176,7 @@ struct Extensions
 
     // GL_ANGLE_framebuffer_multisample
     bool framebufferMultisample;
+    GLuint maxSamples;
 
     // GL_ANGLE_instanced_arrays
     bool instancedArrays;

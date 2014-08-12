@@ -44,7 +44,7 @@ enum
 class Renderer11 : public Renderer
 {
   public:
-    Renderer11(egl::Display *display, HDC hDc);
+    Renderer11(egl::Display *display, EGLNativeDisplayType hDc, EGLint requestedDisplay);
     virtual ~Renderer11();
 
     static Renderer11 *makeRenderer11(Renderer *renderer);
@@ -80,7 +80,7 @@ class Renderer11 : public Renderer
     virtual void applyShaders(gl::ProgramBinary *programBinary, const gl::VertexFormat inputLayout[], const gl::Framebuffer *framebuffer,
                               bool rasterizerDiscard, bool transformFeedbackActive);
     virtual void applyUniforms(const gl::ProgramBinary &programBinary);
-    virtual GLenum applyVertexBuffer(gl::ProgramBinary *programBinary, const gl::VertexAttribute vertexAttributes[], gl::VertexAttribCurrentValueData currentValues[],
+    virtual GLenum applyVertexBuffer(gl::ProgramBinary *programBinary, const gl::VertexAttribute vertexAttributes[], const gl::VertexAttribCurrentValueData currentValues[],
                                      GLint first, GLsizei count, GLsizei instances);
     virtual GLenum applyIndexBuffer(const GLvoid *indices, gl::Buffer *elementArrayBuffer, GLsizei count, GLenum mode, GLenum type, TranslatedIndexData *indexInfo);
     virtual void applyTransformFeedbackBuffers(gl::Buffer *transformFeedbackBuffers[], GLintptr offsets[]);
@@ -123,17 +123,10 @@ class Renderer11 : public Renderer
     virtual bool getPostSubBufferSupport() const;
     virtual int getMaxRecommendedElementsIndices() const;
     virtual int getMaxRecommendedElementsVertices() const;
-    virtual bool getSRGBTextureSupport() const;
 
     virtual int getMajorShaderModel() const;
     virtual int getMinSwapInterval() const;
     virtual int getMaxSwapInterval() const;
-
-    virtual GLsizei getMaxSupportedSamples() const;
-    virtual GLsizei getMaxSupportedFormatSamples(GLenum internalFormat) const;
-    virtual GLsizei getNumSampleCounts(GLenum internalFormat) const;
-    virtual void getSampleCounts(GLenum internalFormat, GLsizei bufSize, GLint *params) const;
-    int getNearestSupportedSamples(DXGI_FORMAT format, unsigned int requested) const;
 
     // Pixel operations
     virtual bool copyToRenderTarget(TextureStorageInterface2D *dest, TextureStorageInterface2D *source);
@@ -177,6 +170,12 @@ class Renderer11 : public Renderer
     virtual TextureStorage *createTextureStorage3D(GLenum internalformat, bool renderTarget, GLsizei width, GLsizei height, GLsizei depth, int levels);
     virtual TextureStorage *createTextureStorage2DArray(GLenum internalformat, bool renderTarget, GLsizei width, GLsizei height, GLsizei depth, int levels);
 
+    // Texture creation
+    virtual Texture2DImpl *createTexture2D();
+    virtual TextureCubeImpl *createTextureCube();
+    virtual Texture3DImpl *createTexture3D();
+    virtual Texture2DArrayImpl *createTexture2DArray();
+
     // Buffer creation
     virtual BufferImpl *createBuffer();
     virtual VertexBuffer *createVertexBuffer();
@@ -207,7 +206,6 @@ class Renderer11 : public Renderer
     void packPixels(ID3D11Texture2D *readTexture, const PackPixelsParams &params, void *pixelsOut);
 
     virtual bool getLUID(LUID *adapterLuid) const;
-    virtual GLenum getNativeTextureFormat(GLenum internalFormat) const;
     virtual rx::VertexConversionType getVertexConversionType(const gl::VertexFormat &vertexFormat) const;
     virtual GLenum getVertexComponentType(const gl::VertexFormat &vertexFormat) const;
 
@@ -233,6 +231,7 @@ class Renderer11 : public Renderer
     HMODULE mD3d11Module;
     HMODULE mDxgiModule;
     HDC mDc;
+    EGLint mRequestedDisplay;
 
     HLSLCompiler mCompiler;
 
@@ -244,19 +243,6 @@ class Renderer11 : public Renderer
     void release();
 
     RenderStateCache mStateCache;
-
-    // Multisample format support
-    struct MultisampleSupportInfo
-    {
-        unsigned int qualityLevels[D3D11_MAX_MULTISAMPLE_SAMPLE_COUNT];
-        unsigned int maxSupportedSamples;
-    };
-    MultisampleSupportInfo getMultisampleSupportInfo(DXGI_FORMAT format);
-
-    typedef std::unordered_map<DXGI_FORMAT, MultisampleSupportInfo> MultisampleSupportMap;
-    MultisampleSupportMap mMultisampleSupportMap;
-
-    unsigned int mMaxSupportedSamples;
 
     // current render target states
     unsigned int mAppliedRenderTargetSerials[gl::IMPLEMENTATION_MAX_DRAW_BUFFERS];

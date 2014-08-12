@@ -46,8 +46,8 @@ void Image11::generateMipmap(Image11 *dest, Image11 *src)
     ASSERT(src->getWidth() == 1 || src->getWidth() / 2 == dest->getWidth());
     ASSERT(src->getHeight() == 1 || src->getHeight() / 2 == dest->getHeight());
 
-    MipGenerationFunction mipFunction = d3d11::GetMipGenerationFunction(src->getDXGIFormat());
-    ASSERT(mipFunction != NULL);
+    const d3d11::DXGIFormat &dxgiFormatInfo = d3d11::GetDXGIFormatInfo(src->getDXGIFormat());
+    ASSERT(dxgiFormatInfo.mipGenerationFunction != NULL);
 
     D3D11_MAPPED_SUBRESOURCE destMapped;
     HRESULT destMapResult = dest->map(D3D11_MAP_WRITE, &destMapped);
@@ -70,8 +70,9 @@ void Image11::generateMipmap(Image11 *dest, Image11 *src)
     const uint8_t *sourceData = reinterpret_cast<const uint8_t*>(srcMapped.pData);
     uint8_t *destData = reinterpret_cast<uint8_t*>(destMapped.pData);
 
-    mipFunction(src->getWidth(), src->getHeight(), src->getDepth(), sourceData, srcMapped.RowPitch, srcMapped.DepthPitch,
-                destData, destMapped.RowPitch, destMapped.DepthPitch);
+    dxgiFormatInfo.mipGenerationFunction(src->getWidth(), src->getHeight(), src->getDepth(),
+                                         sourceData, srcMapped.RowPitch, srcMapped.DepthPitch,
+                                         destData, destMapped.RowPitch, destMapped.DepthPitch);
 
     dest->unmap();
     src->unmap();
@@ -83,7 +84,7 @@ bool Image11::isDirty() const
 {
     // Make sure that this image is marked as dirty even if the staging texture hasn't been created yet
     // if initialization is required before use.
-    return (mDirty && (mStagingTexture || gl_d3d11::RequiresTextureDataInitialization(mInternalFormat)));
+    return (mDirty && (mStagingTexture || d3d11::GetTextureFormatInfo(mInternalFormat).dataInitializerFunction != NULL));
 }
 
 bool Image11::copyToStorage(TextureStorageInterface2D *storage, int level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height)
@@ -126,12 +127,14 @@ bool Image11::redefine(Renderer *renderer, GLenum target, GLenum internalformat,
         mTarget = target;
 
         // compute the d3d format that will be used
-        mDXGIFormat = gl_d3d11::GetTexFormat(internalformat);
-        mActualFormat = d3d11_gl::GetInternalFormat(mDXGIFormat);
-        mRenderable = gl_d3d11::GetRTVFormat(internalformat) != DXGI_FORMAT_UNKNOWN;
+        const d3d11::TextureFormat &formatInfo = d3d11::GetTextureFormatInfo(internalformat);
+        const d3d11::DXGIFormat &dxgiFormatInfo = d3d11::GetDXGIFormatInfo(formatInfo.texFormat);
+        mDXGIFormat = formatInfo.texFormat;
+        mActualFormat = dxgiFormatInfo.internalFormat;
+        mRenderable = (formatInfo.rtvFormat != DXGI_FORMAT_UNKNOWN);
 
         SafeRelease(mStagingTexture);
-        mDirty = gl_d3d11::RequiresTextureDataInitialization(mInternalFormat);
+        mDirty = (formatInfo.dataInitializerFunction != NULL);
 
         return true;
     }
@@ -153,12 +156,15 @@ DXGI_FORMAT Image11::getDXGIFormat() const
 void Image11::loadData(GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width, GLsizei height, GLsizei depth,
                        GLint unpackAlignment, GLenum type, const void *input)
 {
-    GLsizei inputRowPitch = gl::GetRowPitch(mInternalFormat, type, width, unpackAlignment);
-    GLsizei inputDepthPitch = gl::GetDepthPitch(mInternalFormat, type, width, height, unpackAlignment);
-    GLuint outputPixelSize = d3d11::GetFormatPixelBytes(mDXGIFormat);
+    const gl::InternalFormat &formatInfo = gl::GetInternalFormatInfo(mInternalFormat);
+    GLsizei inputRowPitch = formatInfo.computeRowPitch(type, width, unpackAlignment);
+    GLsizei inputDepthPitch = formatInfo.computeDepthPitch(type, width, height, unpackAlignment);
 
-    LoadImageFunction loadFunction = d3d11::GetImageLoadFunction(mInternalFormat, type);
-    ASSERT(loadFunction != NULL);
+    const d3d11::DXGIFormat &dxgiFormatInfo = d3d11::GetDXGIFormatInfo(mDXGIFormat);
+    GLuint outputPixelSize = dxgiFormatInfo.pixelBytes;
+
+    const d3d11::TextureFormat &d3dFormatInfo = d3d11::GetTextureFormatInfo(mInternalFormat);
+    LoadImageFunction loadFunction = d3dFormatInfo.loadFunctions.at(type);
 
     D3D11_MAPPED_SUBRESOURCE mappedImage;
     HRESULT result = map(D3D11_MAP_WRITE, &mappedImage);
@@ -179,18 +185,20 @@ void Image11::loadData(GLint xoffset, GLint yoffset, GLint zoffset, GLsizei widt
 void Image11::loadCompressedData(GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width, GLsizei height, GLsizei depth,
                                  const void *input)
 {
-    GLsizei inputRowPitch = gl::GetRowPitch(mInternalFormat, GL_UNSIGNED_BYTE, width, 1);
-    GLsizei inputDepthPitch = gl::GetDepthPitch(mInternalFormat, GL_UNSIGNED_BYTE, width, height, 1);
+    const gl::InternalFormat &formatInfo = gl::GetInternalFormatInfo(mInternalFormat);
+    GLsizei inputRowPitch = formatInfo.computeRowPitch(GL_UNSIGNED_BYTE, width, 1);
+    GLsizei inputDepthPitch = formatInfo.computeDepthPitch(GL_UNSIGNED_BYTE, width, height, 1);
 
-    GLuint outputPixelSize = d3d11::GetFormatPixelBytes(mDXGIFormat);
-    GLuint outputBlockWidth = d3d11::GetBlockWidth(mDXGIFormat);
-    GLuint outputBlockHeight = d3d11::GetBlockHeight(mDXGIFormat);
+    const d3d11::DXGIFormat &dxgiFormatInfo = d3d11::GetDXGIFormatInfo(mDXGIFormat);
+    GLuint outputPixelSize = dxgiFormatInfo.pixelBytes;
+    GLuint outputBlockWidth = dxgiFormatInfo.blockWidth;
+    GLuint outputBlockHeight = dxgiFormatInfo.blockHeight;
 
     ASSERT(xoffset % outputBlockWidth == 0);
     ASSERT(yoffset % outputBlockHeight == 0);
 
-    LoadImageFunction loadFunction = d3d11::GetImageLoadFunction(mInternalFormat, GL_UNSIGNED_BYTE);
-    ASSERT(loadFunction != NULL);
+    const d3d11::TextureFormat &d3dFormatInfo = d3d11::GetTextureFormatInfo(mInternalFormat);
+    LoadImageFunction loadFunction = d3dFormatInfo.loadFunctions.at(GL_UNSIGNED_BYTE);
 
     D3D11_MAPPED_SUBRESOURCE mappedImage;
     HRESULT result = map(D3D11_MAP_WRITE, &mappedImage);
@@ -287,13 +295,12 @@ void Image11::copy(GLint xoffset, GLint yoffset, GLint zoffset, GLint x, GLint y
         }
 
         // determine the offset coordinate into the destination buffer
-        GLsizei rowOffset = gl::GetPixelBytes(mActualFormat) * xoffset;
+        GLsizei rowOffset = gl::GetInternalFormatInfo(mActualFormat).pixelBytes * xoffset;
         void *dataOffset = static_cast<unsigned char*>(mappedImage.pData) + mappedImage.RowPitch * yoffset + rowOffset + zoffset * mappedImage.DepthPitch;
 
-        GLenum format = gl::GetFormat(mInternalFormat);
-        GLenum type = gl::GetType(mInternalFormat);
+        const gl::InternalFormat &formatInfo = gl::GetInternalFormatInfo(mInternalFormat);
 
-        mRenderer->readPixels(source, x, y, width, height, format, type, mappedImage.RowPitch, gl::PixelPackState(), dataOffset);
+        mRenderer->readPixels(source, x, y, width, height, formatInfo.format, formatInfo.type, mappedImage.RowPitch, gl::PixelPackState(), dataOffset);
 
         unmap();
     }
@@ -349,7 +356,7 @@ void Image11::createStagingTexture()
             desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ | D3D11_CPU_ACCESS_WRITE;
             desc.MiscFlags = 0;
 
-            if (gl_d3d11::RequiresTextureDataInitialization(mInternalFormat))
+            if (d3d11::GetTextureFormatInfo(mInternalFormat).dataInitializerFunction != NULL)
             {
                 std::vector<D3D11_SUBRESOURCE_DATA> initialData;
                 std::vector< std::vector<BYTE> > textureData;
@@ -390,7 +397,7 @@ void Image11::createStagingTexture()
             desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ | D3D11_CPU_ACCESS_WRITE;
             desc.MiscFlags = 0;
 
-            if (gl_d3d11::RequiresTextureDataInitialization(mInternalFormat))
+            if (d3d11::GetTextureFormatInfo(mInternalFormat).dataInitializerFunction != NULL)
             {
                 std::vector<D3D11_SUBRESOURCE_DATA> initialData;
                 std::vector< std::vector<BYTE> > textureData;

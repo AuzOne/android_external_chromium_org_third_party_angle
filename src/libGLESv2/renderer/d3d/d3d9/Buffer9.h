@@ -10,6 +10,7 @@
 #define LIBGLESV2_RENDERER_BUFFER9_H_
 
 #include "libGLESv2/renderer/d3d/BufferD3D.h"
+#include "libGLESv2/renderer/d3d/MemoryBuffer.h"
 #include "libGLESv2/angletypes.h"
 
 namespace rx
@@ -26,7 +27,6 @@ class Buffer9 : public BufferD3D
 
     // BufferD3D implementation
     virtual size_t getSize() const { return mSize; }
-    virtual void clear();
     virtual bool supportsDirectBinding() const { return false; }
     virtual Renderer* getRenderer();
 
@@ -43,7 +43,7 @@ class Buffer9 : public BufferD3D
     DISALLOW_COPY_AND_ASSIGN(Buffer9);
 
     rx::Renderer9 *mRenderer;
-    std::vector<char> mMemory;
+    MemoryBuffer mMemory;
     size_t mSize;
 };
 

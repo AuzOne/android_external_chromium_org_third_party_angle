@@ -28,6 +28,7 @@ LOCAL_SRC_FILES := \
 	third_party/angle/src/common/debug.cpp \
 	third_party/angle/src/common/event_tracer.cpp \
 	third_party/angle/src/common/mathutil.cpp \
+	third_party/angle/src/common/shadervars.cpp \
 	third_party/angle/src/common/tls.cpp \
 	third_party/angle/src/common/utilities.cpp \
 	third_party/angle/src/compiler/translator/BuiltInFunctionEmulator.cpp \
@@ -56,6 +57,7 @@ LOCAL_SRC_FILES := \
 	third_party/angle/src/compiler/translator/QualifierAlive.cpp \
 	third_party/angle/src/compiler/translator/RemoveTree.cpp \
 	third_party/angle/src/compiler/translator/RewriteElseBlocks.cpp \
+	third_party/angle/src/compiler/translator/ScalarizeVecAndMatConstructorArgs.cpp \
 	third_party/angle/src/compiler/translator/SearchSymbol.cpp \
 	third_party/angle/src/compiler/translator/StructureHLSL.cpp \
 	third_party/angle/src/compiler/translator/SymbolTable.cpp \
@@ -123,7 +125,6 @@ MY_CFLAGS_Debug := \
 MY_DEFS_Debug := \
 	'-DV8_DEPRECATION_WARNINGS' \
 	'-DBLINK_SCALE_FILTERS_AT_RECORD_TIME' \
-	'-DANGLE_PRELOADED_D3DCOMPILER_MODULE_NAMES={ TEXT("d3dcompiler_46.dll"), TEXT("d3dcompiler_43.dll") }' \
 	'-D_FILE_OFFSET_BITS=64' \
 	'-DNO_TCMALLOC' \
 	'-DDISABLE_NACL' \
@@ -137,7 +138,6 @@ MY_DEFS_Debug := \
 	'-DSYSTEM_NATIVELY_SIGNALS_MEMORY_PRESSURE' \
 	'-DENABLE_EGLIMAGE=1' \
 	'-DCLD_VERSION=1' \
-	'-DCLD_DATA_FROM_STATIC' \
 	'-DENABLE_PRINTING=1' \
 	'-DENABLE_MANAGED_USERS=1' \
 	'-DDATA_REDUCTION_FALLBACK_HOST="http://compress.googlezip.net:80/"' \
@@ -218,7 +218,6 @@ MY_CFLAGS_Release := \
 MY_DEFS_Release := \
 	'-DV8_DEPRECATION_WARNINGS' \
 	'-DBLINK_SCALE_FILTERS_AT_RECORD_TIME' \
-	'-DANGLE_PRELOADED_D3DCOMPILER_MODULE_NAMES={ TEXT("d3dcompiler_46.dll"), TEXT("d3dcompiler_43.dll") }' \
 	'-D_FILE_OFFSET_BITS=64' \
 	'-DNO_TCMALLOC' \
 	'-DDISABLE_NACL' \
@@ -232,7 +231,6 @@ MY_DEFS_Release := \
 	'-DSYSTEM_NATIVELY_SIGNALS_MEMORY_PRESSURE' \
 	'-DENABLE_EGLIMAGE=1' \
 	'-DCLD_VERSION=1' \
-	'-DCLD_DATA_FROM_STATIC' \
 	'-DENABLE_PRINTING=1' \
 	'-DENABLE_MANAGED_USERS=1' \
 	'-DDATA_REDUCTION_FALLBACK_HOST="http://compress.googlezip.net:80/"' \

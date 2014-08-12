@@ -57,6 +57,10 @@ class RenderTarget;
 class Image;
 class TextureStorage;
 class UniformStorage;
+class Texture2DImpl;
+class TextureCubeImpl;
+class Texture3DImpl;
+class Texture2DArrayImpl;
 
 struct ConfigDesc
 {
@@ -124,7 +128,7 @@ class Renderer
                               bool rasterizerDiscard, bool transformFeedbackActive) = 0;
     virtual void applyUniforms(const gl::ProgramBinary &programBinary) = 0;
     virtual bool applyPrimitiveType(GLenum primitiveType, GLsizei elementCount) = 0;
-    virtual GLenum applyVertexBuffer(gl::ProgramBinary *programBinary, const gl::VertexAttribute vertexAttributes[], gl::VertexAttribCurrentValueData currentValues[],
+    virtual GLenum applyVertexBuffer(gl::ProgramBinary *programBinary, const gl::VertexAttribute vertexAttributes[], const gl::VertexAttribCurrentValueData currentValues[],
                                      GLint first, GLsizei count, GLsizei instances) = 0;
     virtual GLenum applyIndexBuffer(const GLvoid *indices, gl::Buffer *elementArrayBuffer, GLsizei count, GLenum mode, GLenum type, TranslatedIndexData *indexInfo) = 0;
     virtual void applyTransformFeedbackBuffers(gl::Buffer *transformFeedbackBuffers[], GLintptr offsets[]) = 0;
@@ -172,16 +176,10 @@ class Renderer
     virtual bool getPostSubBufferSupport() const = 0;
     virtual int getMaxRecommendedElementsIndices() const = 0;
     virtual int getMaxRecommendedElementsVertices() const = 0;
-    virtual bool getSRGBTextureSupport() const = 0;
 
     virtual int getMajorShaderModel() const = 0;
     virtual int getMinSwapInterval() const = 0;
     virtual int getMaxSwapInterval() const = 0;
-
-    virtual GLsizei getMaxSupportedSamples() const = 0;
-    virtual GLsizei getMaxSupportedFormatSamples(GLenum internalFormat) const = 0;
-    virtual GLsizei getNumSampleCounts(GLenum internalFormat) const = 0;
-    virtual void getSampleCounts(GLenum internalFormat, GLsizei bufSize, GLint *params) const = 0;
 
     // Pixel operations
     virtual bool copyToRenderTarget(TextureStorageInterface2D *dest, TextureStorageInterface2D *source) = 0;
@@ -225,6 +223,12 @@ class Renderer
     virtual TextureStorage *createTextureStorage3D(GLenum internalformat, bool renderTarget, GLsizei width, GLsizei height, GLsizei depth, int levels) = 0;
     virtual TextureStorage *createTextureStorage2DArray(GLenum internalformat, bool renderTarget, GLsizei width, GLsizei height, GLsizei depth, int levels) = 0;
 
+    // Texture creation
+    virtual Texture2DImpl *createTexture2D() = 0;
+    virtual TextureCubeImpl *createTextureCube() = 0;
+    virtual Texture3DImpl *createTexture3D() = 0;
+    virtual Texture2DArrayImpl *createTexture2DArray() = 0;
+
     // Buffer creation
     virtual BufferImpl *createBuffer() = 0;
     virtual VertexBuffer *createVertexBuffer() = 0;
@@ -247,7 +251,6 @@ class Renderer
                                          GLenum destinationFormat, GLenum sourcePixelsType, const gl::Box &destArea) = 0;
 
     virtual bool getLUID(LUID *adapterLuid) const = 0;
-    virtual GLenum getNativeTextureFormat(GLenum internalFormat) const = 0;
     virtual rx::VertexConversionType getVertexConversionType(const gl::VertexFormat &vertexFormat) const = 0;
     virtual GLenum getVertexComponentType(const gl::VertexFormat &vertexFormat) const = 0;
 

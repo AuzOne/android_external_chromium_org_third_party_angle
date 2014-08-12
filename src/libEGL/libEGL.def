@@ -34,3 +34,8 @@ EXPORTS
     eglWaitClient                    @16
     eglWaitGL                        @30
     eglWaitNative                    @31
+
+    ; Extensions
+    eglGetPlatformDisplayEXT         @35
+    eglQuerySurfacePointerANGLE      @36
+    eglPostSubBufferNV               @37

@@ -54,9 +54,6 @@
     <ClInclude Include="..\..\src\third_party\compiler\ArrayBoundsClamper.h">
       <Filter>src\third_party\compiler</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\src\common\shadervars.h">
-      <Filter>src\common</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\src\common\RefCountObject.h">
       <Filter>src\common</Filter>
     </ClInclude>
@@ -102,6 +99,9 @@
     <ClInclude Include="..\..\src\common\utilities.h">
       <Filter>src\common</Filter>
     </ClInclude>
+    <ClCompile Include="..\..\src\common\shadervars.cpp">
+      <Filter>src\common</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\src\common\blocklayout.cpp">
       <Filter>src\common</Filter>
     </ClCompile>
@@ -276,6 +276,9 @@
     <ClCompile Include="..\..\src\compiler\translator\VariablePacker.cpp">
       <Filter>src\compiler\translator</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\src\compiler\translator\ScalarizeVecAndMatConstructorArgs.cpp">
+      <Filter>src\compiler\translator</Filter>
+    </ClCompile>
     <ClInclude Include="..\..\src\compiler\translator\TranslatorHLSL.h">
       <Filter>src\compiler\translator</Filter>
     </ClInclude>
@@ -369,6 +372,9 @@
     <ClCompile Include="..\..\src\compiler\translator\SymbolTable.cpp">
       <Filter>src\compiler\translator</Filter>
     </ClCompile>
+    <ClInclude Include="..\..\src\compiler\translator\ScalarizeVecAndMatConstructorArgs.h">
+      <Filter>src\compiler\translator</Filter>
+    </ClInclude>
     <ClInclude Include="..\..\src\compiler\translator\intermediate.h">
       <Filter>src\compiler\translator</Filter>
     </ClInclude>
@@ -466,6 +472,9 @@
       <Filter>include\KHR</Filter>
     </ClInclude>
     <ClInclude Include="..\..\include\GLSLANG\ShaderLang.h">
+      <Filter>include\GLSLANG</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\include\GLSLANG\ShaderVars.h">
       <Filter>include\GLSLANG</Filter>
     </ClInclude>
     <ClInclude Include="..\..\include\GLES2\gl2platform.h">

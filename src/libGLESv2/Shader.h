@@ -12,15 +12,16 @@
 #ifndef LIBGLESV2_SHADER_H_
 #define LIBGLESV2_SHADER_H_
 
-#include "angle_gl.h"
+
 #include <string>
 #include <list>
 #include <vector>
 
-#include "common/shadervars.h"
+#include "angle_gl.h"
+#include <GLSLANG/ShaderLang.h>
+
 #include "common/angleutils.h"
 #include "libGLESv2/angletypes.h"
-#include "GLSLANG/ShaderLang.h"
 
 namespace rx
 {
@@ -57,7 +58,7 @@ class Shader
 
     virtual ~Shader();
 
-    virtual GLenum getType() = 0;
+    virtual GLenum getType() const = 0;
     GLuint getHandle() const;
 
     void deleteSource();
@@ -87,6 +88,8 @@ class Shader
 
     static void releaseCompiler();
     static ShShaderOutput getCompilerOutputType(GLenum shader);
+    unsigned int getUniformRegister(const std::string &uniformName) const;
+    unsigned int getInterfaceBlockRegister(const std::string &blockName) const;
 
     bool usesDepthRange() const { return mUsesDepthRange; }
     bool usesPointSize() const { return mUsesPointSize; }
@@ -135,6 +138,8 @@ class Shader
     std::string mInfoLog;
     std::vector<sh::Uniform> mActiveUniforms;
     std::vector<sh::InterfaceBlock> mActiveInterfaceBlocks;
+    std::map<std::string, unsigned int> mUniformRegisterMap;
+    std::map<std::string, unsigned int> mInterfaceBlockRegisterMap;
 
     ResourceManager *mResourceManager;
 };
@@ -148,7 +153,7 @@ class VertexShader : public Shader
 
     ~VertexShader();
 
-    virtual GLenum getType();
+    virtual GLenum getType() const;
     virtual void compile();
     virtual void uncompile();
     int getSemanticIndex(const std::string &attributeName);
@@ -170,7 +175,7 @@ class FragmentShader : public Shader
 
     ~FragmentShader();
 
-    virtual GLenum getType();
+    virtual GLenum getType() const;
     virtual void compile();
     virtual void uncompile();
     const std::vector<sh::Attribute> &getOutputVariables() const;

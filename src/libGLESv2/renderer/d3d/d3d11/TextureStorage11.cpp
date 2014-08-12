@@ -10,6 +10,7 @@
 
 #include "libGLESv2/renderer/d3d/d3d11/TextureStorage11.h"
 
+#include "libGLESv2/renderer/d3d/TextureD3D.h"
 #include "libGLESv2/renderer/d3d/d3d11/Renderer11.h"
 #include "libGLESv2/renderer/d3d/d3d11/RenderTarget11.h"
 #include "libGLESv2/renderer/d3d/d3d11/SwapChain11.h"
@@ -125,15 +126,16 @@ DWORD TextureStorage11::GetTextureBindFlags(GLenum internalFormat, bool renderTa
 {
     UINT bindFlags = 0;
 
-    if (gl_d3d11::GetSRVFormat(internalFormat) != DXGI_FORMAT_UNKNOWN)
+    const d3d11::TextureFormat &formatInfo = d3d11::GetTextureFormatInfo(internalFormat);
+    if (formatInfo.srvFormat != DXGI_FORMAT_UNKNOWN)
     {
         bindFlags |= D3D11_BIND_SHADER_RESOURCE;
     }
-    if (gl_d3d11::GetDSVFormat(internalFormat) != DXGI_FORMAT_UNKNOWN)
+    if (formatInfo.dsvFormat != DXGI_FORMAT_UNKNOWN)
     {
         bindFlags |= D3D11_BIND_DEPTH_STENCIL;
     }
-    if (gl_d3d11::GetRTVFormat(internalFormat) != DXGI_FORMAT_UNKNOWN && renderTarget)
+    if (formatInfo.rtvFormat != DXGI_FORMAT_UNKNOWN && renderTarget)
     {
         bindFlags |= D3D11_BIND_RENDER_TARGET;
     }
@@ -194,7 +196,7 @@ UINT TextureStorage11::getSubresourceIndex(int mipLevel, int layerTarget) const
 ID3D11ShaderResourceView *TextureStorage11::getSRV(const gl::SamplerState &samplerState)
 {
     bool swizzleRequired = samplerState.swizzleRequired();
-    bool mipmapping = gl::IsMipmapFiltered(samplerState);
+    bool mipmapping = IsMipmapFiltered(samplerState);
     unsigned int mipLevels = mipmapping ? (samplerState.maxLevel - samplerState.baseLevel) : 1;
 
     // Make sure there's 'mipLevels' mipmap levels below the base level (offset by the top level,  which corresponds to GL level 0)
@@ -307,7 +309,8 @@ bool TextureStorage11::updateSubresourceLevel(ID3D11Resource *srcTexture, unsign
 
         ASSERT(dstTexture);
 
-        if (!fullCopy && (d3d11::GetDepthBits(mTextureFormat) > 0 || d3d11::GetStencilBits(mTextureFormat) > 0))
+        const d3d11::DXGIFormat &dxgiFormatInfo = d3d11::GetDXGIFormatInfo(mTextureFormat);
+        if (!fullCopy && (dxgiFormatInfo.depthBits > 0 || dxgiFormatInfo.stencilBits > 0))
         {
             // CopySubresourceRegion cannot copy partial depth stencils, use the blitter instead
             Blit11 *blitter = mRenderer->getBlitter();
@@ -318,11 +321,13 @@ bool TextureStorage11::updateSubresourceLevel(ID3D11Resource *srcTexture, unsign
         }
         else
         {
+            const d3d11::DXGIFormat &dxgiFormatInfo = d3d11::GetDXGIFormatInfo(mTextureFormat);
+
             D3D11_BOX srcBox;
             srcBox.left = copyArea.x;
             srcBox.top = copyArea.y;
-            srcBox.right = copyArea.x + roundUp((unsigned int)width, d3d11::GetBlockWidth(mTextureFormat));
-            srcBox.bottom = copyArea.y + roundUp((unsigned int)height, d3d11::GetBlockHeight(mTextureFormat));
+            srcBox.right = copyArea.x + roundUp((unsigned int)width, dxgiFormatInfo.blockWidth);
+            srcBox.bottom = copyArea.y + roundUp((unsigned int)height, dxgiFormatInfo.blockHeight);
             srcBox.front = copyArea.z;
             srcBox.back = copyArea.z + copyArea.depth;
 
@@ -355,7 +360,7 @@ void TextureStorage11::generateMipmapLayer(RenderTarget11 *source, RenderTarget1
             Blit11 *blitter = mRenderer->getBlitter();
 
             blitter->copyTexture(sourceSRV, sourceArea, sourceSize, destRTV, destArea, destSize, NULL,
-                                 gl::GetFormat(source->getInternalFormat()), GL_LINEAR);
+                                 gl::GetInternalFormatInfo(source->getInternalFormat()).format, GL_LINEAR);
         }
     }
 }
@@ -400,10 +405,11 @@ TextureStorage11_2D::TextureStorage11_2D(Renderer *renderer, SwapChain11 *swapch
     offscreenRTV->GetDesc(&rtvDesc);
     mRenderTargetFormat = rtvDesc.Format;
 
-    GLenum internalFormat = d3d11_gl::GetInternalFormat(mTextureFormat);
-    mSwizzleTextureFormat = gl_d3d11::GetSwizzleTexFormat(internalFormat);
-    mSwizzleShaderResourceFormat = gl_d3d11::GetSwizzleSRVFormat(internalFormat);
-    mSwizzleRenderTargetFormat = gl_d3d11::GetSwizzleRTVFormat(internalFormat);
+    const d3d11::DXGIFormat &dxgiFormatInfo = d3d11::GetDXGIFormatInfo(mTextureFormat);
+    const d3d11::TextureFormat &formatInfo = d3d11::GetTextureFormatInfo(dxgiFormatInfo.internalFormat);
+    mSwizzleTextureFormat = formatInfo.swizzleTexFormat;
+    mSwizzleShaderResourceFormat = formatInfo.swizzleSRVFormat;
+    mSwizzleRenderTargetFormat = formatInfo.swizzleRTVFormat;
 
     mDepthStencilFormat = DXGI_FORMAT_UNKNOWN;
 }
@@ -420,13 +426,14 @@ TextureStorage11_2D::TextureStorage11_2D(Renderer *renderer, GLenum internalform
         mSwizzleRenderTargets[i] = NULL;
     }
 
-    mTextureFormat = gl_d3d11::GetTexFormat(internalformat);
-    mShaderResourceFormat = gl_d3d11::GetSRVFormat(internalformat);
-    mDepthStencilFormat = gl_d3d11::GetDSVFormat(internalformat);
-    mRenderTargetFormat = gl_d3d11::GetRTVFormat(internalformat);
-    mSwizzleTextureFormat = gl_d3d11::GetSwizzleTexFormat(internalformat);
-    mSwizzleShaderResourceFormat = gl_d3d11::GetSwizzleSRVFormat(internalformat);
-    mSwizzleRenderTargetFormat = gl_d3d11::GetSwizzleRTVFormat(internalformat);
+    const d3d11::TextureFormat &formatInfo = d3d11::GetTextureFormatInfo(internalformat);
+    mTextureFormat = formatInfo.texFormat;
+    mShaderResourceFormat = formatInfo.srvFormat;
+    mDepthStencilFormat = formatInfo.dsvFormat;
+    mRenderTargetFormat = formatInfo.rtvFormat;
+    mSwizzleTextureFormat = formatInfo.swizzleTexFormat;
+    mSwizzleShaderResourceFormat = formatInfo.swizzleSRVFormat;
+    mSwizzleRenderTargetFormat = formatInfo.swizzleRTVFormat;
 
     // if the width or height is not positive this should be treated as an incomplete texture
     // we handle that here by skipping the d3d texture creation
@@ -690,13 +697,14 @@ TextureStorage11_Cube::TextureStorage11_Cube(Renderer *renderer, GLenum internal
         }
     }
 
-    mTextureFormat = gl_d3d11::GetTexFormat(internalformat);
-    mShaderResourceFormat = gl_d3d11::GetSRVFormat(internalformat);
-    mDepthStencilFormat = gl_d3d11::GetDSVFormat(internalformat);
-    mRenderTargetFormat = gl_d3d11::GetRTVFormat(internalformat);
-    mSwizzleTextureFormat = gl_d3d11::GetSwizzleTexFormat(internalformat);
-    mSwizzleShaderResourceFormat = gl_d3d11::GetSwizzleSRVFormat(internalformat);
-    mSwizzleRenderTargetFormat = gl_d3d11::GetSwizzleRTVFormat(internalformat);
+    const d3d11::TextureFormat &formatInfo = d3d11::GetTextureFormatInfo(internalformat);
+    mTextureFormat = formatInfo.texFormat;
+    mShaderResourceFormat = formatInfo.srvFormat;
+    mDepthStencilFormat = formatInfo.dsvFormat;
+    mRenderTargetFormat = formatInfo.rtvFormat;
+    mSwizzleTextureFormat = formatInfo.swizzleTexFormat;
+    mSwizzleShaderResourceFormat = formatInfo.swizzleSRVFormat;
+    mSwizzleRenderTargetFormat = formatInfo.swizzleRTVFormat;
 
     // if the size is not positive this should be treated as an incomplete texture
     // we handle that here by skipping the d3d texture creation
@@ -770,7 +778,7 @@ RenderTarget *TextureStorage11_Cube::getRenderTargetFace(GLenum faceTarget, int 
 {
     if (level >= 0 && level < getLevelCount())
     {
-        int faceIndex = gl::TextureCubeMap::targetToIndex(faceTarget);
+        int faceIndex = TextureD3D_Cube::targetToIndex(faceTarget);
         if (!mRenderTarget[faceIndex][level])
         {
             ID3D11Device *device = mRenderer->getDevice();
@@ -864,10 +872,8 @@ ID3D11ShaderResourceView *TextureStorage11_Cube::createSRV(int baseLevel, int mi
     srvDesc.Format = format;
 
     // Unnormalized integer cube maps are not supported by DX11; we emulate them as an array of six 2D textures
-    bool unnormalizedInteger = (d3d11::GetComponentType(mTextureFormat) == GL_INT ||
-                                d3d11::GetComponentType(mTextureFormat) == GL_UNSIGNED_INT);
-
-    if(unnormalizedInteger)
+    const d3d11::DXGIFormat &dxgiFormatInfo = d3d11::GetDXGIFormatInfo(format);
+    if (dxgiFormatInfo.componentType == GL_INT || dxgiFormatInfo.componentType == GL_UNSIGNED_INT)
     {
         srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
         srvDesc.Texture2DArray.MostDetailedMip = mTopLevel + baseLevel;
@@ -993,13 +999,14 @@ TextureStorage11_3D::TextureStorage11_3D(Renderer *renderer, GLenum internalform
         mSwizzleRenderTargets[i] = NULL;
     }
 
-    mTextureFormat = gl_d3d11::GetTexFormat(internalformat);
-    mShaderResourceFormat = gl_d3d11::GetSRVFormat(internalformat);
-    mDepthStencilFormat = gl_d3d11::GetDSVFormat(internalformat);
-    mRenderTargetFormat = gl_d3d11::GetRTVFormat(internalformat);
-    mSwizzleTextureFormat = gl_d3d11::GetSwizzleTexFormat(internalformat);
-    mSwizzleShaderResourceFormat = gl_d3d11::GetSwizzleSRVFormat(internalformat);
-    mSwizzleRenderTargetFormat = gl_d3d11::GetSwizzleRTVFormat(internalformat);
+    const d3d11::TextureFormat &formatInfo = d3d11::GetTextureFormatInfo(internalformat);
+    mTextureFormat = formatInfo.texFormat;
+    mShaderResourceFormat = formatInfo.srvFormat;
+    mDepthStencilFormat = formatInfo.dsvFormat;
+    mRenderTargetFormat = formatInfo.rtvFormat;
+    mSwizzleTextureFormat = formatInfo.swizzleTexFormat;
+    mSwizzleShaderResourceFormat = formatInfo.swizzleSRVFormat;
+    mSwizzleRenderTargetFormat = formatInfo.swizzleRTVFormat;
 
     // If the width, height or depth are not positive this should be treated as an incomplete texture
     // we handle that here by skipping the d3d texture creation
@@ -1296,13 +1303,14 @@ TextureStorage11_2DArray::TextureStorage11_2DArray(Renderer *renderer, GLenum in
         mSwizzleRenderTargets[level] = NULL;
     }
 
-    mTextureFormat = gl_d3d11::GetTexFormat(internalformat);
-    mShaderResourceFormat = gl_d3d11::GetSRVFormat(internalformat);
-    mDepthStencilFormat = gl_d3d11::GetDSVFormat(internalformat);
-    mRenderTargetFormat = gl_d3d11::GetRTVFormat(internalformat);
-    mSwizzleTextureFormat = gl_d3d11::GetSwizzleTexFormat(internalformat);
-    mSwizzleShaderResourceFormat = gl_d3d11::GetSwizzleSRVFormat(internalformat);
-    mSwizzleRenderTargetFormat = gl_d3d11::GetSwizzleRTVFormat(internalformat);
+    const d3d11::TextureFormat &formatInfo = d3d11::GetTextureFormatInfo(internalformat);
+    mTextureFormat = formatInfo.texFormat;
+    mShaderResourceFormat = formatInfo.srvFormat;
+    mDepthStencilFormat = formatInfo.dsvFormat;
+    mRenderTargetFormat = formatInfo.rtvFormat;
+    mSwizzleTextureFormat = formatInfo.swizzleTexFormat;
+    mSwizzleShaderResourceFormat = formatInfo.swizzleSRVFormat;
+    mSwizzleRenderTargetFormat = formatInfo.swizzleRTVFormat;
 
     // if the width, height or depth is not positive this should be treated as an incomplete texture
     // we handle that here by skipping the d3d texture creation

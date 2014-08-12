@@ -22,6 +22,14 @@ namespace gl
 void *Shader::mFragmentCompiler = NULL;
 void *Shader::mVertexCompiler = NULL;
 
+template <typename VarT>
+const std::vector<VarT> *GetShaderVariables(const std::vector<VarT> *variableList)
+{
+    // TODO: handle staticUse. for now, assume all returned variables are active.
+    ASSERT(variableList);
+    return variableList;
+}
+
 Shader::Shader(ResourceManager *manager, const rx::Renderer *renderer, GLuint handle)
     : mHandle(handle), mRenderer(renderer), mResourceManager(manager)
 {
@@ -113,6 +121,18 @@ void Shader::getSource(GLsizei bufSize, GLsizei *length, char *buffer) const
 void Shader::getTranslatedSource(GLsizei bufSize, GLsizei *length, char *buffer) const
 {
     getSourceImpl(mHlsl, bufSize, length, buffer);
+}
+
+unsigned int Shader::getUniformRegister(const std::string &uniformName) const
+{
+    ASSERT(mUniformRegisterMap.count(uniformName) > 0);
+    return mUniformRegisterMap.find(uniformName)->second;
+}
+
+unsigned int Shader::getInterfaceBlockRegister(const std::string &blockName) const
+{
+    ASSERT(mInterfaceBlockRegisterMap.count(blockName) > 0);
+    return mInterfaceBlockRegisterMap.find(blockName)->second;
 }
 
 const std::vector<sh::Uniform> &Shader::getUniforms() const
@@ -229,8 +249,8 @@ void Shader::parseVaryings(void *compiler)
 {
     if (!mHlsl.empty())
     {
-        std::vector<sh::Varying> *activeVaryings;
-        ShGetInfoPointer(compiler, SH_ACTIVE_VARYINGS_ARRAY, reinterpret_cast<void**>(&activeVaryings));
+        const std::vector<sh::Varying> *activeVaryings = ShGetVaryings(compiler);
+        ASSERT(activeVaryings);
 
         for (size_t varyingIndex = 0; varyingIndex < activeVaryings->size(); varyingIndex++)
         {
@@ -361,15 +381,35 @@ void Shader::compileToHLSL(void *compiler)
         mHlsl = outputHLSL;
 #endif
 
-        delete[] outputHLSL;
+        SafeDeleteArray(outputHLSL);
 
-        void *activeUniforms;
-        ShGetInfoPointer(compiler, SH_ACTIVE_UNIFORMS_ARRAY, &activeUniforms);
-        mActiveUniforms = *(std::vector<sh::Uniform>*)activeUniforms;
+        mActiveUniforms = *GetShaderVariables(ShGetUniforms(compiler));
 
-        void *activeInterfaceBlocks;
-        ShGetInfoPointer(compiler, SH_ACTIVE_INTERFACE_BLOCKS_ARRAY, &activeInterfaceBlocks);
-        mActiveInterfaceBlocks = *(std::vector<sh::InterfaceBlock>*)activeInterfaceBlocks;
+        for (size_t uniformIndex = 0; uniformIndex < mActiveUniforms.size(); uniformIndex++)
+        {
+            const sh::Uniform &uniform = mActiveUniforms[uniformIndex];
+
+            unsigned int index = -1;
+            bool result = ShGetUniformRegister(compiler, uniform.name.c_str(), &index);
+            UNUSED_ASSERTION_VARIABLE(result);
+            ASSERT(result);
+
+            mUniformRegisterMap[uniform.name] = index;
+        }
+
+        mActiveInterfaceBlocks = *GetShaderVariables(ShGetInterfaceBlocks(compiler));
+
+        for (size_t blockIndex = 0; blockIndex < mActiveInterfaceBlocks.size(); blockIndex++)
+        {
+            const sh::InterfaceBlock &interfaceBlock = mActiveInterfaceBlocks[blockIndex];
+
+            unsigned int index = -1;
+            bool result = ShGetInterfaceBlockRegister(compiler, interfaceBlock.name.c_str(), &index);
+            UNUSED_ASSERTION_VARIABLE(result);
+            ASSERT(result);
+
+            mInterfaceBlockRegisterMap[interfaceBlock.name] = index;
+        }
     }
     else
     {
@@ -440,7 +480,7 @@ VertexShader::~VertexShader()
 {
 }
 
-GLenum VertexShader::getType()
+GLenum VertexShader::getType() const
 {
     return GL_VERTEX_SHADER;
 }
@@ -488,9 +528,7 @@ void VertexShader::parseAttributes()
     const std::string &hlsl = getHLSL();
     if (!hlsl.empty())
     {
-        void *activeAttributes;
-        ShGetInfoPointer(mVertexCompiler, SH_ACTIVE_ATTRIBUTES_ARRAY, &activeAttributes);
-        mActiveAttributes = *(std::vector<sh::Attribute>*)activeAttributes;
+        mActiveAttributes = *GetShaderVariables(ShGetAttributes(mVertexCompiler));
     }
 }
 
@@ -503,7 +541,7 @@ FragmentShader::~FragmentShader()
 {
 }
 
-GLenum FragmentShader::getType()
+GLenum FragmentShader::getType() const
 {
     return GL_FRAGMENT_SHADER;
 }
@@ -519,9 +557,7 @@ void FragmentShader::compile()
     const std::string &hlsl = getHLSL();
     if (!hlsl.empty())
     {
-        void *activeOutputVariables;
-        ShGetInfoPointer(mFragmentCompiler, SH_ACTIVE_OUTPUT_VARIABLES_ARRAY, &activeOutputVariables);
-        mActiveOutputVariables = *(std::vector<sh::Attribute>*)activeOutputVariables;
+        mActiveOutputVariables = *GetShaderVariables(ShGetOutputVariables(mFragmentCompiler));
     }
 }
 

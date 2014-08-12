@@ -18,13 +18,11 @@ Buffer9::Buffer9(rx::Renderer9 *renderer)
     : BufferD3D(),
       mRenderer(renderer),
       mSize(0)
-{
-
-}
+{}
 
 Buffer9::~Buffer9()
 {
-
+    mSize = 0;
 }
 
 Buffer9 *Buffer9::makeBuffer9(BufferImpl *buffer)
@@ -33,16 +31,14 @@ Buffer9 *Buffer9::makeBuffer9(BufferImpl *buffer)
     return static_cast<Buffer9*>(buffer);
 }
 
-void Buffer9::clear()
-{
-    mSize = 0;
-}
-
 void Buffer9::setData(const void* data, size_t size, GLenum usage)
 {
     if (size > mMemory.size())
     {
-        mMemory.resize(size);
+        if (!mMemory.resize(size))
+        {
+            return gl::error(GL_OUT_OF_MEMORY);
+        }
     }
 
     mSize = size;
@@ -52,7 +48,6 @@ void Buffer9::setData(const void* data, size_t size, GLenum usage)
     }
 
     mIndexRangeCache.clear();
-
     invalidateStaticData();
 
     if (usage == GL_STATIC_DRAW)
@@ -70,7 +65,10 @@ void Buffer9::setSubData(const void* data, size_t size, size_t offset)
 {
     if (offset + size > mMemory.size())
     {
-        mMemory.resize(offset + size);
+        if (!mMemory.resize(offset + size))
+        {
+            return gl::error(GL_OUT_OF_MEMORY);
+        }
     }
 
     mSize = std::max(mSize, offset + size);
@@ -86,12 +84,14 @@ void Buffer9::setSubData(const void* data, size_t size, size_t offset)
 
 void Buffer9::copySubData(BufferImpl* source, GLintptr sourceOffset, GLintptr destOffset, GLsizeiptr size)
 {
+    // Note: this method is currently unreachable
     Buffer9* sourceBuffer = makeBuffer9(source);
     if (sourceBuffer)
     {
         memcpy(mMemory.data() + destOffset, sourceBuffer->mMemory.data() + sourceOffset, size);
     }
 
+    mIndexRangeCache.invalidateRange(destOffset, size);
     invalidateStaticData();
 }
 

@@ -9,9 +9,10 @@
 
 #include <stack>
 
-#include "compiler/translator/Types.h"
 #include "angle_gl.h"
-#include "common/shadervars.h"
+#include <GLSLANG/ShaderLang.h>
+
+#include "compiler/translator/Types.h"
 
 // atof_clamp is like atof but
 //   1. it forces C locale, i.e. forcing '.' as decimal point.
@@ -39,13 +40,12 @@ template <typename VarT>
 class GetVariableTraverser
 {
   public:
+    GetVariableTraverser(std::vector<VarT> *output);
     void traverse(const TType &type, const TString &name);
 
   protected:
-    GetVariableTraverser(std::vector<VarT> *output);
-
-    // Must be overloaded
-    virtual void visitVariable(VarT *newVar) = 0;
+    // May be overloaded
+    virtual void visitVariable(VarT *newVar) {}
 
   private:
     std::stack<std::vector<VarT> *> mOutputStack;

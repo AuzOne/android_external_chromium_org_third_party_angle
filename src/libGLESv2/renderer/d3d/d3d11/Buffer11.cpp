@@ -148,7 +148,7 @@ class Buffer11::PackStorage11 : public Buffer11::BufferStorage11
     ID3D11Texture2D *mStagingTexture;
     DXGI_FORMAT mTextureFormat;
     gl::Extents mTextureSize;
-    std::vector<unsigned char> mMemoryBuffer;
+    MemoryBuffer mMemoryBuffer;
     PackPixelsParams *mQueuedPackCommand;
     PackPixelsParams mPackParams;
     bool mDataModified;
@@ -162,31 +162,20 @@ Buffer11::Buffer11(Renderer11 *renderer)
       mMappedStorage(NULL),
       mResolvedDataRevision(0),
       mReadUsageCount(0)
-{
-}
+{}
 
 Buffer11::~Buffer11()
 {
-    clear();
+    for (auto it = mBufferStorages.begin(); it != mBufferStorages.end(); it++)
+    {
+        SafeDelete(it->second);
+    }
 }
 
 Buffer11 *Buffer11::makeBuffer11(BufferImpl *buffer)
 {
     ASSERT(HAS_DYNAMIC_TYPE(Buffer11*, buffer));
     return static_cast<Buffer11*>(buffer);
-}
-
-void Buffer11::clear()
-{
-    for (auto it = mBufferStorages.begin(); it != mBufferStorages.end(); it++)
-    {
-        SafeDelete(it->second);
-    }
-
-    mBufferStorages.clear();
-
-    mSize = 0;
-    mResolvedDataRevision = 0;
 }
 
 void Buffer11::setData(const void* data, size_t size, GLenum usage)
@@ -215,7 +204,10 @@ void *Buffer11::getData()
     {
         if (stagingBuffer->getSize() > mResolvedData.size())
         {
-            mResolvedData.resize(stagingBuffer->getSize());
+            if (!mResolvedData.resize(stagingBuffer->getSize()))
+            {
+                return gl::error(GL_OUT_OF_MEMORY, (void*)NULL);
+            }
         }
 
         ID3D11DeviceContext *context = mRenderer->getDeviceContext();
@@ -312,6 +304,21 @@ void Buffer11::copySubData(BufferImpl* source, GLintptr sourceOffset, GLintptr d
                 dest = getStagingBuffer();
             }
 
+            // D3D11 does not allow overlapped copies until 11.1, and only if the
+            // device supports D3D11_FEATURE_DATA_D3D11_OPTIONS::CopyWithOverlap
+            // Get around this via a different source buffer
+            if (source == dest)
+            {
+                if (source->getUsage() == BUFFER_USAGE_STAGING)
+                {
+                    source = getBufferStorage(BUFFER_USAGE_VERTEX_OR_TRANSFORM_FEEDBACK);
+                }
+                else
+                {
+                    source = getStagingBuffer();
+                }
+            }
+
             dest->copyFromStorage(source, sourceOffset, size, destOffset);
             dest->setDataRevision(dest->getDataRevision() + 1);
         }
@@ -319,6 +326,7 @@ void Buffer11::copySubData(BufferImpl* source, GLintptr sourceOffset, GLintptr d
         mSize = std::max<size_t>(mSize, destOffset + size);
     }
 
+    mIndexRangeCache.invalidateRange(destOffset, size);
     invalidateStaticData();
 }
 
@@ -349,6 +357,8 @@ GLvoid *Buffer11::map(size_t offset, size_t length, GLbitfield access)
 
     if ((access & GL_MAP_WRITE_BIT) > 0)
     {
+        mIndexRangeCache.invalidateRange(offset, length);
+
         // Update the data revision immediately, since the data might be changed at any time
         mMappedStorage->setDataRevision(mMappedStorage->getDataRevision() + 1);
     }
@@ -372,6 +382,7 @@ void Buffer11::markTransformFeedbackUsage()
         transformFeedbackStorage->setDataRevision(transformFeedbackStorage->getDataRevision() + 1);
     }
 
+    mIndexRangeCache.clear();
     invalidateStaticData();
 }
 
@@ -441,9 +452,11 @@ ID3D11ShaderResourceView *Buffer11::getSRV(DXGI_FORMAT srvFormat)
     ID3D11Device *device = mRenderer->getDevice();
     ID3D11ShaderResourceView *bufferSRV = NULL;
 
+    const d3d11::DXGIFormat &dxgiFormatInfo = d3d11::GetDXGIFormatInfo(srvFormat);
+
     D3D11_SHADER_RESOURCE_VIEW_DESC bufferSRVDesc;
     bufferSRVDesc.Buffer.ElementOffset = 0;
-    bufferSRVDesc.Buffer.ElementWidth = mSize / d3d11::GetFormatPixelBytes(srvFormat);
+    bufferSRVDesc.Buffer.ElementWidth = mSize / dxgiFormatInfo.pixelBytes;
     bufferSRVDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
     bufferSRVDesc.Format = srvFormat;
 
@@ -467,6 +480,8 @@ void Buffer11::packPixels(ID3D11Texture2D *srcTexture, UINT srcSubresource, cons
         packStorage->packPixels(srcTexture, srcSubresource, params);
         packStorage->setDataRevision(latestStorage ? latestStorage->getDataRevision() + 1 : 1);
     }
+
+    mIndexRangeCache.clear();
 }
 
 Buffer11::BufferStorage11 *Buffer11::getBufferStorage(BufferUsage usage)
@@ -598,7 +613,7 @@ Buffer11::NativeBuffer11::~NativeBuffer11()
 
 // Returns true if it recreates the direct buffer
 bool Buffer11::NativeBuffer11::copyFromStorage(BufferStorage11 *source, size_t sourceOffset,
-                                                      size_t size, size_t destOffset)
+                                               size_t size, size_t destOffset)
 {
     ID3D11DeviceContext *context = mRenderer->getDeviceContext();
 
@@ -779,9 +794,11 @@ Buffer11::PackStorage11::~PackStorage11()
 }
 
 bool Buffer11::PackStorage11::copyFromStorage(BufferStorage11 *source, size_t sourceOffset,
-                                                     size_t size, size_t destOffset)
+                                              size_t size, size_t destOffset)
 {
-    UNIMPLEMENTED();
+    // We copy through a staging buffer when drawing with a pack buffer,
+    // or for other cases where we access the pack buffer
+    UNREACHABLE();
     return false;
 }
 
@@ -789,7 +806,10 @@ bool Buffer11::PackStorage11::resize(size_t size, bool preserveData)
 {
     if (size != mBufferSize)
     {
-        mMemoryBuffer.resize(size, 0);
+        if (!mMemoryBuffer.resize(size))
+        {
+            return false;
+        }
         mBufferSize = size;
     }
 
@@ -807,7 +827,7 @@ void *Buffer11::PackStorage11::map(size_t offset, size_t length, GLbitfield acce
     flushQueuedPackCommand();
     mDataModified = (mDataModified || (access & GL_MAP_WRITE_BIT) != 0);
 
-    return &mMemoryBuffer[0] + offset;
+    return mMemoryBuffer.data() + offset;
 }
 
 void Buffer11::PackStorage11::unmap()
@@ -860,10 +880,8 @@ void Buffer11::PackStorage11::packPixels(ID3D11Texture2D *srcTexure, UINT srcSub
         ASSERT(SUCCEEDED(hr));
     }
 
-    if (textureDesc.SampleDesc.Count > 1)
-    {
-        UNIMPLEMENTED();
-    }
+    // ReadPixels from multisampled FBOs isn't supported in current GL
+    ASSERT(textureDesc.SampleDesc.Count <= 1);
 
     ID3D11DeviceContext *immediateContext = mRenderer->getDeviceContext();
     D3D11_BOX srcBox;
@@ -880,11 +898,11 @@ void Buffer11::PackStorage11::packPixels(ID3D11Texture2D *srcTexure, UINT srcSub
 
 void Buffer11::PackStorage11::flushQueuedPackCommand()
 {
-    ASSERT(!mMemoryBuffer.empty());
+    ASSERT(mMemoryBuffer.size() > 0);
 
     if (mQueuedPackCommand)
     {
-        mRenderer->packPixels(mStagingTexture, *mQueuedPackCommand, &mMemoryBuffer[0]);
+        mRenderer->packPixels(mStagingTexture, *mQueuedPackCommand, mMemoryBuffer.data());
         SafeDelete(mQueuedPackCommand);
     }
 }

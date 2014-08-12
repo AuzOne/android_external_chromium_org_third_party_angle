@@ -33,7 +33,7 @@ class Blit9;
 class Renderer9 : public Renderer
 {
   public:
-    Renderer9(egl::Display *display, HDC hDc);
+    Renderer9(egl::Display *display, EGLNativeDisplayType hDc, EGLint requestedDisplay);
     virtual ~Renderer9();
 
     static Renderer9 *makeRenderer9(Renderer *renderer);
@@ -80,7 +80,7 @@ class Renderer9 : public Renderer
                               bool rasterizerDiscard, bool transformFeedbackActive);
     virtual void applyUniforms(const gl::ProgramBinary &programBinary);
     virtual bool applyPrimitiveType(GLenum primitiveType, GLsizei elementCount);
-    virtual GLenum applyVertexBuffer(gl::ProgramBinary *programBinary, const gl::VertexAttribute vertexAttributes[], gl::VertexAttribCurrentValueData currentValues[],
+    virtual GLenum applyVertexBuffer(gl::ProgramBinary *programBinary, const gl::VertexAttribute vertexAttributes[], const gl::VertexAttribCurrentValueData currentValues[],
                                      GLint first, GLsizei count, GLsizei instances);
     virtual GLenum applyIndexBuffer(const GLvoid *indices, gl::Buffer *elementArrayBuffer, GLsizei count, GLenum mode, GLenum type, TranslatedIndexData *indexInfo);
 
@@ -124,18 +124,11 @@ class Renderer9 : public Renderer
     virtual bool getPostSubBufferSupport() const;
     virtual int getMaxRecommendedElementsIndices() const;
     virtual int getMaxRecommendedElementsVertices() const;
-    virtual bool getSRGBTextureSupport() const;
 
     virtual int getMajorShaderModel() const;
     DWORD getCapsDeclTypes() const;
     virtual int getMinSwapInterval() const;
     virtual int getMaxSwapInterval() const;
-
-    virtual GLsizei getMaxSupportedSamples() const;
-    virtual GLsizei getMaxSupportedFormatSamples(GLenum internalFormat) const;
-    virtual GLsizei getNumSampleCounts(GLenum internalFormat) const;
-    virtual void getSampleCounts(GLenum internalFormat, GLsizei bufSize, GLint *params) const;
-    int getNearestSupportedSamples(D3DFORMAT format, int requested) const;
 
     // Pixel operations
     virtual bool copyToRenderTarget(TextureStorageInterface2D *dest, TextureStorageInterface2D *source);
@@ -179,6 +172,12 @@ class Renderer9 : public Renderer
     virtual TextureStorage *createTextureStorage3D(GLenum internalformat, bool renderTarget, GLsizei width, GLsizei height, GLsizei depth, int levels);
     virtual TextureStorage *createTextureStorage2DArray(GLenum internalformat, bool renderTarget, GLsizei width, GLsizei height, GLsizei depth, int levels);
 
+    // Texture creation
+    virtual Texture2DImpl *createTexture2D();
+    virtual TextureCubeImpl *createTextureCube();
+    virtual Texture3DImpl *createTexture3D();
+    virtual Texture2DArrayImpl *createTexture2DArray();
+
     // Buffer creation
     virtual BufferImpl *createBuffer();
     virtual VertexBuffer *createVertexBuffer();
@@ -202,7 +201,6 @@ class Renderer9 : public Renderer
     D3DPOOL getTexturePool(DWORD usage) const;
 
     virtual bool getLUID(LUID *adapterLuid) const;
-    virtual GLenum getNativeTextureFormat(GLenum internalFormat) const;
     virtual rx::VertexConversionType getVertexConversionType(const gl::VertexFormat &vertexFormat) const;
     virtual GLenum getVertexComponentType(const gl::VertexFormat &vertexFormat) const;
 
@@ -262,17 +260,6 @@ class Renderer9 : public Renderer
     int mMaxSwapInterval;
 
     bool mVertexTextureSupport;
-
-    struct MultisampleSupportInfo
-    {
-        bool supportedSamples[D3DMULTISAMPLE_16_SAMPLES + 1];
-        unsigned int maxSupportedSamples;
-    };
-    typedef std::map<D3DFORMAT, MultisampleSupportInfo> MultisampleSupportMap;
-    MultisampleSupportMap mMultiSampleSupport;
-    unsigned int mMaxSupportedSamples;
-
-    MultisampleSupportInfo getMultiSampleSupport(D3DFORMAT format);
 
     // current render target states
     unsigned int mAppliedRenderTargetSerial;

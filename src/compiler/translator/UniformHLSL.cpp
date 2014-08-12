@@ -18,37 +18,6 @@
 namespace sh
 {
 
-// Use the same layout for packed and shared
-static void SetBlockLayout(InterfaceBlock *interfaceBlock, BlockLayoutType newLayout)
-{
-    interfaceBlock->layout = newLayout;
-    interfaceBlock->blockInfo.clear();
-
-    switch (newLayout)
-    {
-      case BLOCKLAYOUT_SHARED:
-      case BLOCKLAYOUT_PACKED:
-        {
-            HLSLBlockEncoder hlslEncoder(&interfaceBlock->blockInfo, HLSLBlockEncoder::ENCODE_PACKED);
-            hlslEncoder.encodeInterfaceBlockFields(interfaceBlock->fields);
-            interfaceBlock->dataSize = hlslEncoder.getBlockSize();
-        }
-        break;
-
-      case BLOCKLAYOUT_STANDARD:
-        {
-            Std140BlockEncoder stdEncoder(&interfaceBlock->blockInfo);
-            stdEncoder.encodeInterfaceBlockFields(interfaceBlock->fields);
-            interfaceBlock->dataSize = stdEncoder.getBlockSize();
-        }
-        break;
-
-      default:
-        UNREACHABLE();
-        break;
-    }
-}
-
 static const char *UniformRegisterPrefix(const TType &type)
 {
     if (IsSampler(type.getBasicType()))
@@ -121,14 +90,17 @@ void UniformHLSL::reserveInterfaceBlockRegisters(unsigned int registerCount)
     mInterfaceBlockRegister = registerCount;
 }
 
-int UniformHLSL::declareUniformAndAssignRegister(const TType &type, const TString &name)
+unsigned int UniformHLSL::declareUniformAndAssignRegister(const TType &type, const TString &name)
 {
-    int registerIndex = (IsSampler(type.getBasicType()) ? mSamplerRegister : mUniformRegister);
+    unsigned int registerIndex = (IsSampler(type.getBasicType()) ? mSamplerRegister : mUniformRegister);
 
-    declareUniformToList(type, name, registerIndex, &mActiveUniforms);
+    GetVariableTraverser<Uniform> traverser(&mActiveUniforms);
+    traverser.traverse(type, name);
 
-    unsigned int registerCount = HLSLVariableRegisterCount(mActiveUniforms.back(), mOutputType);
+    const sh::Uniform &activeUniform = mActiveUniforms.back();
+    mUniformRegisterMap[activeUniform.name] = registerIndex;
 
+    unsigned int registerCount = HLSLVariableRegisterCount(activeUniform, mOutputType);
     if (IsSampler(type.getBasicType()))
     {
         mSamplerRegister += registerCount;
@@ -139,43 +111,6 @@ int UniformHLSL::declareUniformAndAssignRegister(const TType &type, const TStrin
     }
 
     return registerIndex;
-}
-
-class DeclareUniformsTraverser : public GetVariableTraverser<Uniform>
-{
-  public:
-    DeclareUniformsTraverser(std::vector<Uniform> *output,
-                             unsigned int registerIndex,
-                             ShShaderOutput outputType)
-        : GetVariableTraverser(output),
-          mRegisterIndex(registerIndex),
-          mOutputType(outputType)
-    {}
-
-  private:
-    virtual void visitVariable(Uniform *uniform)
-    {
-        if (!uniform->isStruct())
-        {
-            uniform->registerIndex = mRegisterIndex;
-            uniform->elementIndex = 0;
-        }
-        else
-        {
-            // Assign register offset information.
-            // This will override the offsets in any nested structures.
-            HLSLVariableGetRegisterInfo(mRegisterIndex, uniform, mOutputType);
-        }
-    }
-
-    unsigned int mRegisterIndex;
-    ShShaderOutput mOutputType;
-};
-
-void UniformHLSL::declareUniformToList(const TType &type, const TString &name, int registerIndex, std::vector<Uniform> *output)
-{
-    DeclareUniformsTraverser traverser(output, registerIndex, mOutputType);
-    traverser.traverse(type, name);
 }
 
 TString UniformHLSL::uniformsHeader(ShShaderOutput outputType, const ReferencedSymbols &referencedUniforms)
@@ -189,7 +124,7 @@ TString UniformHLSL::uniformsHeader(ShShaderOutput outputType, const ReferencedS
         const TType &type = uniform.getType();
         const TString &name = uniform.getSymbol();
 
-        int registerIndex = declareUniformAndAssignRegister(type, name);
+        unsigned int registerIndex = declareUniformAndAssignRegister(type, name);
 
         if (outputType == SH_HLSL11_OUTPUT && IsSampler(type.getBasicType()))   // Also declare the texture
         {
@@ -225,7 +160,12 @@ TString UniformHLSL::interfaceBlocksHeader(const ReferencedSymbols &referencedIn
         const TFieldList &fieldList = interfaceBlock.fields();
 
         unsigned int arraySize = static_cast<unsigned int>(interfaceBlock.arraySize());
-        InterfaceBlock activeBlock(interfaceBlock.name().c_str(), arraySize, mInterfaceBlockRegister);
+        unsigned int activeRegister = mInterfaceBlockRegister;
+
+        InterfaceBlock activeBlock;
+        activeBlock.name = interfaceBlock.name().c_str();
+        activeBlock.arraySize = arraySize;
+
         for (unsigned int typeIndex = 0; typeIndex < fieldList.size(); typeIndex++)
         {
             const TField &field = *fieldList[typeIndex];
@@ -236,11 +176,10 @@ TString UniformHLSL::interfaceBlocksHeader(const ReferencedSymbols &referencedIn
             traverser.traverse(*field.type(), fullFieldName);
         }
 
-        mInterfaceBlockRegisterMap[activeBlock.name] = mInterfaceBlockRegister;
+        mInterfaceBlockRegisterMap[activeBlock.name] = activeRegister;
         mInterfaceBlockRegister += std::max(1u, arraySize);
 
-        BlockLayoutType blockLayoutType = GetBlockLayoutType(interfaceBlock.blockStorage());
-        SetBlockLayout(&activeBlock, blockLayoutType);
+        activeBlock.layout = GetBlockLayoutType(interfaceBlock.blockStorage());
 
         if (interfaceBlock.matrixPacking() == EmpRowMajor)
         {
@@ -258,12 +197,12 @@ TString UniformHLSL::interfaceBlocksHeader(const ReferencedSymbols &referencedIn
         {
             for (unsigned int arrayIndex = 0; arrayIndex < arraySize; arrayIndex++)
             {
-                interfaceBlocks += interfaceBlockString(interfaceBlock, activeBlock.registerIndex + arrayIndex, arrayIndex);
+                interfaceBlocks += interfaceBlockString(interfaceBlock, activeRegister + arrayIndex, arrayIndex);
             }
         }
         else
         {
-            interfaceBlocks += interfaceBlockString(interfaceBlock, activeBlock.registerIndex, GL_INVALID_INDEX);
+            interfaceBlocks += interfaceBlockString(interfaceBlock, activeRegister, GL_INVALID_INDEX);
         }
     }
 

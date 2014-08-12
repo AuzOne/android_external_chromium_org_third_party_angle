@@ -14,7 +14,7 @@
 
 #include "common/debug.h"
 #include "angletypes.h"
-#include "common/shadervars.h"
+#include "common/blocklayout.h"
 
 namespace gl
 {

@@ -8,16 +8,14 @@
 //
 
 #include "common/blocklayout.h"
-#include "common/shadervars.h"
 #include "common/mathutil.h"
 #include "common/utilities.h"
 
 namespace sh
 {
 
-BlockLayoutEncoder::BlockLayoutEncoder(std::vector<BlockMemberInfo> *blockInfoOut)
-    : mCurrentOffset(0),
-      mBlockInfoOut(blockInfoOut)
+BlockLayoutEncoder::BlockLayoutEncoder()
+    : mCurrentOffset(0)
 {
 }
 
@@ -45,7 +43,7 @@ void BlockLayoutEncoder::encodeInterfaceBlockFields(const std::vector<InterfaceB
     }
 }
 
-void BlockLayoutEncoder::encodeInterfaceBlockField(const InterfaceBlockField &field)
+BlockMemberInfo BlockLayoutEncoder::encodeInterfaceBlockField(const InterfaceBlockField &field)
 {
     int arrayStride;
     int matrixStride;
@@ -55,12 +53,9 @@ void BlockLayoutEncoder::encodeInterfaceBlockField(const InterfaceBlockField &fi
 
     const BlockMemberInfo memberInfo(mCurrentOffset * BytesPerComponent, arrayStride * BytesPerComponent, matrixStride * BytesPerComponent, field.isRowMajorMatrix);
 
-    if (mBlockInfoOut)
-    {
-        mBlockInfoOut->push_back(memberInfo);
-    }
-
     advanceOffset(field.type, field.arraySize, field.isRowMajorMatrix, arrayStride, matrixStride);
+
+    return memberInfo;
 }
 
 void BlockLayoutEncoder::encodeType(GLenum type, unsigned int arraySize, bool isRowMajorMatrix)
@@ -72,11 +67,6 @@ void BlockLayoutEncoder::encodeType(GLenum type, unsigned int arraySize, bool is
 
     const BlockMemberInfo memberInfo(mCurrentOffset * BytesPerComponent, arrayStride * BytesPerComponent, matrixStride * BytesPerComponent, isRowMajorMatrix);
 
-    if (mBlockInfoOut)
-    {
-        mBlockInfoOut->push_back(memberInfo);
-    }
-
     advanceOffset(type, arraySize, isRowMajorMatrix, arrayStride, matrixStride);
 }
 
@@ -85,8 +75,7 @@ void BlockLayoutEncoder::nextRegister()
     mCurrentOffset = rx::roundUp<size_t>(mCurrentOffset, ComponentsPerRegister);
 }
 
-Std140BlockEncoder::Std140BlockEncoder(std::vector<BlockMemberInfo> *blockInfoOut)
-    : BlockLayoutEncoder(blockInfoOut)
+Std140BlockEncoder::Std140BlockEncoder()
 {
 }
 
@@ -155,9 +144,8 @@ void Std140BlockEncoder::advanceOffset(GLenum type, unsigned int arraySize, bool
     }
 }
 
-HLSLBlockEncoder::HLSLBlockEncoder(std::vector<BlockMemberInfo> *blockInfoOut, HLSLBlockEncoderStrategy strategy)
-    : BlockLayoutEncoder(blockInfoOut),
-      mEncoderStrategy(strategy)
+HLSLBlockEncoder::HLSLBlockEncoder(HLSLBlockEncoderStrategy strategy)
+    : mEncoderStrategy(strategy)
 {
 }
 
@@ -245,50 +233,14 @@ void HLSLBlockEncoder::skipRegisters(unsigned int numRegisters)
     mCurrentOffset += (numRegisters * ComponentsPerRegister);
 }
 
-void HLSLVariableGetRegisterInfo(unsigned int baseRegisterIndex, Uniform *variable, HLSLBlockEncoder *encoder,
-                                 const std::vector<BlockMemberInfo> &blockInfo, ShShaderOutput outputType)
+HLSLBlockEncoder::HLSLBlockEncoderStrategy HLSLBlockEncoder::GetStrategyFor(ShShaderOutput outputType)
 {
-    // because this method computes offsets (element indexes) instead of any total sizes,
-    // we can ignore the array size of the variable
-
-    if (variable->isStruct())
+    switch (outputType)
     {
-        encoder->enterAggregateType();
-
-        variable->registerIndex = baseRegisterIndex;
-
-        for (size_t fieldIndex = 0; fieldIndex < variable->fields.size(); fieldIndex++)
-        {
-            HLSLVariableGetRegisterInfo(baseRegisterIndex, &variable->fields[fieldIndex], encoder, blockInfo, outputType);
-        }
-
-        // Since the above loop only encodes one element of an array, ensure we don't lose track of the
-        // current register offset
-        if (variable->isArray())
-        {
-            unsigned int structRegisterCount = (HLSLVariableRegisterCount(*variable, outputType) / variable->arraySize);
-            encoder->skipRegisters(structRegisterCount * (variable->arraySize - 1));
-        }
-
-        encoder->exitAggregateType();
+      case SH_HLSL9_OUTPUT: return ENCODE_LOOSE;
+      case SH_HLSL11_OUTPUT: return ENCODE_PACKED;
+      default: UNREACHABLE(); return ENCODE_PACKED;
     }
-    else
-    {
-        encoder->encodeType(variable->type, variable->arraySize, false);
-
-        const size_t registerBytes = (encoder->BytesPerComponent * encoder->ComponentsPerRegister);
-        variable->registerIndex = baseRegisterIndex + (blockInfo.back().offset / registerBytes);
-        variable->elementIndex = (blockInfo.back().offset % registerBytes) / sizeof(float);
-    }
-}
-
-void HLSLVariableGetRegisterInfo(unsigned int baseRegisterIndex, Uniform *variable, ShShaderOutput outputType)
-{
-    std::vector<BlockMemberInfo> blockInfo;
-    HLSLBlockEncoder encoder(&blockInfo,
-                             outputType == SH_HLSL9_OUTPUT ? HLSLBlockEncoder::ENCODE_LOOSE
-                                                           : HLSLBlockEncoder::ENCODE_PACKED);
-    HLSLVariableGetRegisterInfo(baseRegisterIndex, variable, &encoder, blockInfo, outputType);
 }
 
 template <class ShaderVarType>
@@ -317,7 +269,7 @@ void HLSLVariableRegisterCount(const ShaderVarType &variable, HLSLBlockEncoder *
 
 unsigned int HLSLVariableRegisterCount(const Varying &variable)
 {
-    HLSLBlockEncoder encoder(NULL, HLSLBlockEncoder::ENCODE_PACKED);
+    HLSLBlockEncoder encoder(HLSLBlockEncoder::ENCODE_PACKED);
     HLSLVariableRegisterCount(variable, &encoder);
 
     const size_t registerBytes = (encoder.BytesPerComponent * encoder.ComponentsPerRegister);
@@ -326,10 +278,7 @@ unsigned int HLSLVariableRegisterCount(const Varying &variable)
 
 unsigned int HLSLVariableRegisterCount(const Uniform &variable, ShShaderOutput outputType)
 {
-    HLSLBlockEncoder encoder(NULL,
-                             outputType == SH_HLSL9_OUTPUT ? HLSLBlockEncoder::ENCODE_LOOSE
-                                                           : HLSLBlockEncoder::ENCODE_PACKED);
-
+    HLSLBlockEncoder encoder(HLSLBlockEncoder::GetStrategyFor(outputType));
     HLSLVariableRegisterCount(variable, &encoder);
 
     const size_t registerBytes = (encoder.BytesPerComponent * encoder.ComponentsPerRegister);

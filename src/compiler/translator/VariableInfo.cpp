@@ -319,8 +319,10 @@ bool CollectVariables::visitAggregate(Visit, TIntermAggregate *node)
     {
       case EOpDeclaration:
         {
-            const TIntermSequence &sequence = node->getSequence();
-            const TIntermTyped &typedNode = *sequence.front()->getAsTyped();
+            const TIntermSequence &sequence = *(node->getSequence());
+            ASSERT(!sequence.empty());
+
+            const TIntermTyped &typedNode = *(sequence.front()->getAsTyped());
             TQualifier qualifier = typedNode.getQualifier();
 
             if (typedNode.getBasicType() == EbtInterfaceBlock)
@@ -344,14 +346,16 @@ bool CollectVariables::visitAggregate(Visit, TIntermAggregate *node)
                     visitInfoList(sequence, mUniforms);
                     break;
                   default:
-                    visitInfoList(sequence, mVaryings);
+                    // do not traverse invariant declarations such as
+                    //  "invariant gl_Position;"
+                    if (typedNode.getBasicType() != EbtInvariant)
+                    {
+                        visitInfoList(sequence, mVaryings);
+                    }
                     break;
                 }
 
-                if (!sequence.empty())
-                {
-                    visitChildren = false;
-                }
+                visitChildren = false;
             }
             break;
         }

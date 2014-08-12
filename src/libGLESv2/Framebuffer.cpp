@@ -22,8 +22,9 @@
 namespace gl
 {
 
-Framebuffer::Framebuffer(rx::Renderer *renderer)
+Framebuffer::Framebuffer(rx::Renderer *renderer, GLuint id)
     : mRenderer(renderer),
+      mId(id),
       mReadBufferState(GL_COLOR_ATTACHMENT0_EXT),
       mDepthbuffer(NULL),
       mStencilbuffer(NULL)
@@ -363,22 +364,22 @@ GLenum Framebuffer::completeness() const
             GLenum internalformat = colorbuffer->getInternalFormat();
             // TODO(geofflang): use context's texture caps
             const TextureCaps &formatCaps = mRenderer->getRendererTextureCaps().get(internalformat);
+            const InternalFormat &formatInfo = GetInternalFormatInfo(internalformat);
             if (colorbuffer->isTexture())
             {
-                if (!formatCaps.colorRendering)
+                if (!formatCaps.renderable)
                 {
                     return GL_FRAMEBUFFER_UNSUPPORTED;
                 }
 
-                if (gl::GetDepthBits(internalformat) > 0 ||
-                    gl::GetStencilBits(internalformat) > 0)
+                if (formatInfo.depthBits > 0 || formatInfo.stencilBits > 0)
                 {
                     return GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT;
                 }
             }
             else
             {
-                if (!formatCaps.colorRendering)
+                if (!formatCaps.renderable || formatInfo.depthBits > 0 || formatInfo.stencilBits > 0)
                 {
                     return GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT;
                 }
@@ -403,7 +404,7 @@ GLenum Framebuffer::completeness() const
                 // in GLES 3.0, there is no such restriction
                 if (clientVersion < 3)
                 {
-                    if (gl::GetPixelBytes(colorbuffer->getInternalFormat()) != colorbufferSize)
+                    if (formatInfo.pixelBytes != colorbufferSize)
                     {
                         return GL_FRAMEBUFFER_UNSUPPORTED;
                     }
@@ -427,7 +428,7 @@ GLenum Framebuffer::completeness() const
                 width = colorbuffer->getWidth();
                 height = colorbuffer->getHeight();
                 samples = colorbuffer->getSamples();
-                colorbufferSize = gl::GetPixelBytes(colorbuffer->getInternalFormat());
+                colorbufferSize = formatInfo.pixelBytes;
                 missingAttachment = false;
             }
         }
@@ -443,10 +444,9 @@ GLenum Framebuffer::completeness() const
         GLenum internalformat = mDepthbuffer->getInternalFormat();
         // TODO(geofflang): use context's texture caps
         const TextureCaps &formatCaps = mRenderer->getRendererTextureCaps().get(internalformat);
+        const InternalFormat &formatInfo = GetInternalFormatInfo(internalformat);
         if (mDepthbuffer->isTexture())
         {
-            GLenum internalformat = mDepthbuffer->getInternalFormat();
-
             // depth texture attachments require OES/ANGLE_depth_texture
             // TODO(geofflang): use context's extensions
             if (!mRenderer->getRendererExtensions().depthTextures)
@@ -454,19 +454,19 @@ GLenum Framebuffer::completeness() const
                 return GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT;
             }
 
-            if (!formatCaps.depthRendering)
+            if (!formatCaps.renderable)
             {
                 return GL_FRAMEBUFFER_UNSUPPORTED;
             }
 
-            if (gl::GetDepthBits(internalformat) == 0)
+            if (formatInfo.depthBits == 0)
             {
                 return GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT;
             }
         }
         else
         {
-            if (!formatCaps.depthRendering)
+            if (!formatCaps.renderable || formatInfo.depthBits == 0)
             {
                 return GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT;
             }
@@ -499,10 +499,9 @@ GLenum Framebuffer::completeness() const
         GLenum internalformat = mStencilbuffer->getInternalFormat();
         // TODO(geofflang): use context's texture caps
         const TextureCaps &formatCaps = mRenderer->getRendererTextureCaps().get(internalformat);
+        const InternalFormat &formatInfo = GetInternalFormatInfo(internalformat);
         if (mStencilbuffer->isTexture())
         {
-            GLenum internalformat = mStencilbuffer->getInternalFormat();
-
             // texture stencil attachments come along as part
             // of OES_packed_depth_stencil + OES/ANGLE_depth_texture
             // TODO(geofflang): use context's extensions
@@ -511,19 +510,19 @@ GLenum Framebuffer::completeness() const
                 return GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT;
             }
 
-            if (!formatCaps.stencilRendering)
+            if (!formatCaps.renderable)
             {
                 return GL_FRAMEBUFFER_UNSUPPORTED;
             }
 
-            if (gl::GetStencilBits(internalformat) == 0)
+            if (formatInfo.stencilBits == 0)
             {
                 return GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT;
             }
         }
         else
         {
-            if (!formatCaps.stencilRendering)
+            if (!formatCaps.renderable || formatInfo.stencilBits == 0)
             {
                 return GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT;
             }
@@ -563,7 +562,7 @@ GLenum Framebuffer::completeness() const
 }
 
 DefaultFramebuffer::DefaultFramebuffer(rx::Renderer *renderer, Colorbuffer *colorbuffer, DepthStencilbuffer *depthStencil)
-    : Framebuffer(renderer)
+    : Framebuffer(renderer, 0)
 {
     Renderbuffer *colorRenderbuffer = new Renderbuffer(0, colorbuffer);
     mColorbuffers[0] = new RenderbufferAttachment(colorRenderbuffer);

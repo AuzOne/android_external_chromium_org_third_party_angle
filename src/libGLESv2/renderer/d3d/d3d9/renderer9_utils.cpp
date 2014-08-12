@@ -246,59 +246,57 @@ void ConvertMinFilter(GLenum minFilter, D3DTEXTUREFILTERTYPE *d3dMinFilter, D3DT
     }
 }
 
+D3DMULTISAMPLE_TYPE GetMultisampleType(GLuint samples)
+{
+    return (samples > 1) ? static_cast<D3DMULTISAMPLE_TYPE>(samples) : D3DMULTISAMPLE_NONE;
+}
+
 }
 
 namespace d3d9_gl
 {
+
+GLsizei GetSamplesCount(D3DMULTISAMPLE_TYPE type)
+{
+    return (type != D3DMULTISAMPLE_NONMASKABLE) ? type : 0;
+}
+
+bool IsFormatChannelEquivalent(D3DFORMAT d3dformat, GLenum format)
+{
+    GLenum internalFormat = d3d9::GetD3DFormatInfo(d3dformat).internalFormat;
+    GLenum convertedFormat = gl::GetInternalFormatInfo(internalFormat).format;
+    return convertedFormat == format;
+}
 
 static gl::TextureCaps GenerateTextureFormatCaps(GLenum internalFormat, IDirect3D9 *d3d9, D3DDEVTYPE deviceType,
                                                  UINT adapter, D3DFORMAT adapterFormat)
 {
     gl::TextureCaps textureCaps;
 
-    D3DFORMAT textureFormat = gl_d3d9::GetTextureFormat(internalFormat);
-    D3DFORMAT renderFormat = gl_d3d9::GetRenderFormat(internalFormat);
-
-    textureCaps.texture2D = SUCCEEDED(d3d9->CheckDeviceFormat(adapter, deviceType, adapterFormat,
-                                                              0, D3DRTYPE_TEXTURE, textureFormat));
-
-    textureCaps.textureCubeMap = SUCCEEDED(d3d9->CheckDeviceFormat(adapter, deviceType, adapterFormat,
-                                                                   0, D3DRTYPE_CUBETEXTURE, textureFormat));
-
-    // D3D9 Renderer doesn't support 3D textures
-    //textureCaps.setTexture3DSupport(SUCCEEDED(d3d9->CheckDeviceFormat(adapter, deviceType, currentDisplayMode.Format,
-    //                                                                  0, D3DRTYPE_VOLUMETEXTURE, textureFormat)));
-    textureCaps.texture3D = false;
-
-    // D3D9 doesn't support 2D array textures
-    textureCaps.texture2DArray = false;
-
-    textureCaps.filtering = SUCCEEDED(d3d9->CheckDeviceFormat(adapter, deviceType, adapterFormat,
-                                                              D3DUSAGE_QUERY_FILTER, D3DRTYPE_TEXTURE, textureFormat));
-
-    textureCaps.colorRendering = SUCCEEDED(d3d9->CheckDeviceFormat(adapter, deviceType, adapterFormat,
-                                                                   D3DUSAGE_RENDERTARGET, D3DRTYPE_TEXTURE, textureFormat)) ||
-                                 SUCCEEDED(d3d9->CheckDeviceFormat(adapter, deviceType, adapterFormat,
-                                                                   D3DUSAGE_RENDERTARGET, D3DRTYPE_TEXTURE, renderFormat));
-
-    textureCaps.depthRendering = gl::GetDepthBits(internalFormat) > 0 &&
-                                 (SUCCEEDED(d3d9->CheckDeviceFormat(adapter, deviceType, adapterFormat,
-                                                                    D3DUSAGE_DEPTHSTENCIL, D3DRTYPE_TEXTURE, textureFormat)) ||
-                                  SUCCEEDED(d3d9->CheckDeviceFormat(adapter, deviceType, adapterFormat,
-                                                                    D3DUSAGE_DEPTHSTENCIL, D3DRTYPE_TEXTURE, renderFormat)));
-
-    textureCaps.stencilRendering = gl::GetStencilBits(internalFormat) > 0 &&
-                                   (SUCCEEDED(d3d9->CheckDeviceFormat(adapter, deviceType, adapterFormat,
-                                                                      D3DUSAGE_DEPTHSTENCIL, D3DRTYPE_TEXTURE, textureFormat)) ||
-                                    SUCCEEDED(d3d9->CheckDeviceFormat(adapter, deviceType, adapterFormat,
-                                                                      D3DUSAGE_DEPTHSTENCIL, D3DRTYPE_TEXTURE, renderFormat)));
+    const d3d9::TextureFormat &d3dFormatInfo = d3d9::GetTextureFormatInfo(internalFormat);
+    const gl::InternalFormat &formatInfo = gl::GetInternalFormatInfo(internalFormat);
+    if (formatInfo.depthBits > 0 || formatInfo.stencilBits > 0)
+    {
+        textureCaps.texturable = SUCCEEDED(d3d9->CheckDeviceFormat(adapter, deviceType, adapterFormat, 0, D3DRTYPE_TEXTURE, d3dFormatInfo.renderFormat));
+        textureCaps.filterable = SUCCEEDED(d3d9->CheckDeviceFormat(adapter, deviceType, adapterFormat, D3DUSAGE_QUERY_FILTER, D3DRTYPE_TEXTURE, d3dFormatInfo.renderFormat));
+        textureCaps.renderable = SUCCEEDED(d3d9->CheckDeviceFormat(adapter, deviceType, adapterFormat, D3DUSAGE_RENDERTARGET, D3DRTYPE_TEXTURE, d3dFormatInfo.renderFormat)) ||
+                                 SUCCEEDED(d3d9->CheckDeviceFormat(adapter, deviceType, adapterFormat, D3DUSAGE_DEPTHSTENCIL, D3DRTYPE_TEXTURE, d3dFormatInfo.renderFormat));
+    }
+    else
+    {
+        textureCaps.texturable = SUCCEEDED(d3d9->CheckDeviceFormat(adapter, deviceType, adapterFormat, 0, D3DRTYPE_TEXTURE, d3dFormatInfo.texFormat)) &&
+                                 SUCCEEDED(d3d9->CheckDeviceFormat(adapter, deviceType, adapterFormat, 0, D3DRTYPE_CUBETEXTURE, d3dFormatInfo.texFormat));
+        textureCaps.filterable = SUCCEEDED(d3d9->CheckDeviceFormat(adapter, deviceType, adapterFormat, D3DUSAGE_QUERY_FILTER, D3DRTYPE_TEXTURE, d3dFormatInfo.texFormat));
+        textureCaps.renderable = SUCCEEDED(d3d9->CheckDeviceFormat(adapter, deviceType, adapterFormat, D3DUSAGE_RENDERTARGET, D3DRTYPE_TEXTURE, d3dFormatInfo.texFormat)) ||
+                                 SUCCEEDED(d3d9->CheckDeviceFormat(adapter, deviceType, adapterFormat, D3DUSAGE_DEPTHSTENCIL, D3DRTYPE_TEXTURE, d3dFormatInfo.texFormat));
+    }
 
     textureCaps.sampleCounts.insert(1);
     for (size_t i = D3DMULTISAMPLE_2_SAMPLES; i <= D3DMULTISAMPLE_16_SAMPLES; i++)
     {
         D3DMULTISAMPLE_TYPE multisampleType = D3DMULTISAMPLE_TYPE(i);
 
-        HRESULT result = d3d9->CheckDeviceMultiSampleType(adapter, deviceType, renderFormat, TRUE, multisampleType, NULL);
+        HRESULT result = d3d9->CheckDeviceMultiSampleType(adapter, deviceType, d3dFormatInfo.renderFormat, TRUE, multisampleType, NULL);
         if (SUCCEEDED(result))
         {
             textureCaps.sampleCounts.insert(i);
@@ -321,12 +319,15 @@ void GenerateCaps(IDirect3D9 *d3d9, IDirect3DDevice9 *device, D3DDEVTYPE deviceT
     D3DDISPLAYMODE currentDisplayMode;
     d3d9->GetAdapterDisplayMode(adapter, &currentDisplayMode);
 
+    GLuint maxSamples = 0;
     const gl::FormatSet &allFormats = gl::GetAllSizedInternalFormats();
     for (gl::FormatSet::const_iterator internalFormat = allFormats.begin(); internalFormat != allFormats.end(); ++internalFormat)
     {
         gl::TextureCaps textureCaps = GenerateTextureFormatCaps(*internalFormat, d3d9, deviceType, adapter,
                                                                 currentDisplayMode.Format);
         textureCapsMap->insert(*internalFormat, textureCaps);
+
+        maxSamples = std::max(maxSamples, textureCaps.getMaxSamples());
     }
 
     // GL core feature limits
@@ -413,6 +414,7 @@ void GenerateCaps(IDirect3D9 *d3d9, IDirect3DDevice9 *device, D3DDEVTYPE deviceT
     extensions->blendMinMax = true;
     extensions->framebufferBlit = true;
     extensions->framebufferMultisample = true;
+    extensions->maxSamples = maxSamples;
     extensions->instancedArrays = deviceCaps.PixelShaderVersion >= D3DPS_VERSION(3, 0);
     extensions->packReverseRowOrder = true;
     extensions->standardDerivatives = (deviceCaps.PS20Caps.Caps & D3DPS20CAPS_GRADIENTINSTRUCTIONS) != 0;
@@ -421,6 +423,38 @@ void GenerateCaps(IDirect3D9 *d3d9, IDirect3DDevice9 *device, D3DDEVTYPE deviceT
     extensions->textureUsage = true;
     extensions->translatedShaderSource = true;
     extensions->colorBufferFloat = false;
+}
+
+}
+
+namespace d3d9
+{
+
+GLuint ComputeBlockSize(D3DFORMAT format, GLuint width, GLuint height)
+{
+    const D3DFormat &d3dFormatInfo = d3d9::GetD3DFormatInfo(format);
+    GLuint numBlocksWide = (width + d3dFormatInfo.blockWidth - 1) / d3dFormatInfo.blockWidth;
+    GLuint numBlocksHight = (height + d3dFormatInfo.blockHeight - 1) / d3dFormatInfo.blockHeight;
+    return (d3dFormatInfo.pixelBytes * numBlocksWide * numBlocksHight);
+}
+
+void MakeValidSize(bool isImage, D3DFORMAT format, GLsizei *requestWidth, GLsizei *requestHeight, int *levelOffset)
+{
+    const D3DFormat &d3dFormatInfo = d3d9::GetD3DFormatInfo(format);
+
+    int upsampleCount = 0;
+    // Don't expand the size of full textures that are at least (blockWidth x blockHeight) already.
+    if (isImage || *requestWidth < static_cast<GLsizei>(d3dFormatInfo.blockWidth) ||
+        *requestHeight < static_cast<GLsizei>(d3dFormatInfo.blockHeight))
+    {
+        while (*requestWidth % d3dFormatInfo.blockWidth != 0 || *requestHeight % d3dFormatInfo.blockHeight != 0)
+        {
+            *requestWidth <<= 1;
+            *requestHeight <<= 1;
+            upsampleCount++;
+        }
+    }
+    *levelOffset = upsampleCount;
 }
 
 }
