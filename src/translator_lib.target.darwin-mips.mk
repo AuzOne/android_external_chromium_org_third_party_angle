@@ -28,7 +28,6 @@ LOCAL_SRC_FILES := \
 	third_party/angle/src/common/debug.cpp \
 	third_party/angle/src/common/event_tracer.cpp \
 	third_party/angle/src/common/mathutil.cpp \
-	third_party/angle/src/common/shadervars.cpp \
 	third_party/angle/src/common/tls.cpp \
 	third_party/angle/src/common/utilities.cpp \
 	third_party/angle/src/compiler/translator/BuiltInFunctionEmulator.cpp \
@@ -55,6 +54,7 @@ LOCAL_SRC_FILES := \
 	third_party/angle/src/compiler/translator/ParseContext.cpp \
 	third_party/angle/src/compiler/translator/PoolAlloc.cpp \
 	third_party/angle/src/compiler/translator/QualifierAlive.cpp \
+	third_party/angle/src/compiler/translator/RegenerateStructNames.cpp \
 	third_party/angle/src/compiler/translator/RemoveTree.cpp \
 	third_party/angle/src/compiler/translator/RewriteElseBlocks.cpp \
 	third_party/angle/src/compiler/translator/ScalarizeVecAndMatConstructorArgs.cpp \
@@ -130,7 +130,6 @@ MY_CFLAGS_Debug := \
 
 MY_DEFS_Debug := \
 	'-DV8_DEPRECATION_WARNINGS' \
-	'-DBLINK_SCALE_FILTERS_AT_RECORD_TIME' \
 	'-D_FILE_OFFSET_BITS=64' \
 	'-DNO_TCMALLOC' \
 	'-DDISABLE_NACL' \
@@ -152,6 +151,7 @@ MY_DEFS_Debug := \
 	'-DDATA_REDUCTION_PROXY_PROBE_URL="http://check.googlezip.net/connect"' \
 	'-DDATA_REDUCTION_PROXY_WARMUP_URL="http://www.gstatic.com/generate_204"' \
 	'-DVIDEO_HOLE=1' \
+	'-DANGLE_TRANSLATOR_STATIC' \
 	'-DUSE_OPENSSL=1' \
 	'-DUSE_OPENSSL_CERTS=1' \
 	'-DANDROID' \
@@ -230,7 +230,6 @@ MY_CFLAGS_Release := \
 
 MY_DEFS_Release := \
 	'-DV8_DEPRECATION_WARNINGS' \
-	'-DBLINK_SCALE_FILTERS_AT_RECORD_TIME' \
 	'-D_FILE_OFFSET_BITS=64' \
 	'-DNO_TCMALLOC' \
 	'-DDISABLE_NACL' \
@@ -252,6 +251,7 @@ MY_DEFS_Release := \
 	'-DDATA_REDUCTION_PROXY_PROBE_URL="http://check.googlezip.net/connect"' \
 	'-DDATA_REDUCTION_PROXY_WARMUP_URL="http://www.gstatic.com/generate_204"' \
 	'-DVIDEO_HOLE=1' \
+	'-DANGLE_TRANSLATOR_STATIC' \
 	'-DUSE_OPENSSL=1' \
 	'-DUSE_OPENSSL_CERTS=1' \
 	'-DANDROID' \
