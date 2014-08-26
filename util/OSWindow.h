@@ -13,17 +13,16 @@
 #include <EGL/eglext.h>
 #include <list>
 
-class Window
+class OSWindow
 {
   public:
-    Window();
+    OSWindow();
 
     virtual bool initialize(const std::string &name, size_t width, size_t height) = 0;
     virtual void destroy() = 0;
 
     int getWidth() const;
     int getHeight() const;
-    virtual void setMousePosition(int x, int y) = 0;
 
     virtual EGLNativeWindowType getNativeWindow() const = 0;
     virtual EGLNativeDisplayType getNativeDisplay() const = 0;
@@ -33,11 +32,15 @@ class Window
     bool popEvent(Event *event);
     void pushEvent(Event event);
 
+    virtual void setMousePosition(int x, int y) = 0;
+
   private:
     int mWidth;
     int mHeight;
 
     std::list<Event> mEvents;
 };
+
+OSWindow *CreateOSWindow();
 
 #endif // SAMPLE_UTIL_WINDOW_H

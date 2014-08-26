@@ -473,7 +473,7 @@ void Renderer11::setTexture(gl::SamplerType type, int index, gl::Texture *textur
 
     if (texture)
     {
-        TextureImpl* textureImpl = texture->getImplementation();
+        TextureD3D* textureImpl = TextureD3D::makeTextureD3D(texture->getImplementation());
 
         TextureStorageInterface *texStorage = textureImpl->getNativeTexture();
         if (texStorage)
@@ -1067,21 +1067,23 @@ void Renderer11::drawArrays(GLenum mode, GLsizei count, GLsizei instances, bool 
 void Renderer11::drawElements(GLenum mode, GLsizei count, GLenum type, const GLvoid *indices,
                               gl::Buffer *elementArrayBuffer, const TranslatedIndexData &indexInfo, GLsizei instances)
 {
+    int minIndex = static_cast<int>(indexInfo.indexRange.start);
+
     if (mode == GL_LINE_LOOP)
     {
-        drawLineLoop(count, type, indices, indexInfo.minIndex, elementArrayBuffer);
+        drawLineLoop(count, type, indices, minIndex, elementArrayBuffer);
     }
     else if (mode == GL_TRIANGLE_FAN)
     {
-        drawTriangleFan(count, type, indices, indexInfo.minIndex, elementArrayBuffer, instances);
+        drawTriangleFan(count, type, indices, minIndex, elementArrayBuffer, instances);
     }
     else if (instances > 0)
     {
-        mDeviceContext->DrawIndexedInstanced(count, instances, 0, -static_cast<int>(indexInfo.minIndex), 0);
+        mDeviceContext->DrawIndexedInstanced(count, instances, 0, -minIndex, 0);
     }
     else
     {
-        mDeviceContext->DrawIndexed(count, 0, -static_cast<int>(indexInfo.minIndex));
+        mDeviceContext->DrawIndexed(count, 0, -minIndex);
     }
 }
 
@@ -2746,10 +2748,13 @@ void Renderer11::readPixels(gl::Framebuffer *framebuffer, GLint x, GLint y, GLsi
         area.width = width;
         area.height = height;
 
-        if (pack.pixelBuffer.get() != NULL)
+        gl::Buffer *packBuffer = pack.pixelBuffer.get();
+        if (packBuffer != NULL)
         {
-            rx::Buffer11 *packBufferStorage = Buffer11::makeBuffer11(pack.pixelBuffer.get()->getImplementation());
+            rx::Buffer11 *packBufferStorage = Buffer11::makeBuffer11(packBuffer->getImplementation());
             PackPixelsParams packParams(area, format, type, outputPitch, pack, reinterpret_cast<ptrdiff_t>(pixels));
+
+            packBuffer->getIndexRangeCache()->clear();
             packBufferStorage->packPixels(colorBufferTexture, subresourceIndex, packParams);
         }
         else
@@ -2799,24 +2804,19 @@ TextureStorage *Renderer11::createTextureStorage2DArray(GLenum internalformat, b
     return new TextureStorage11_2DArray(this, internalformat, renderTarget, width, height, depth, levels);
 }
 
-Texture2DImpl *Renderer11::createTexture2D()
+TextureImpl *Renderer11::createTexture(GLenum target)
 {
-    return new TextureD3D_2D(this);
-}
+    switch(target)
+    {
+      case GL_TEXTURE_2D: return new TextureD3D_2D(this);
+      case GL_TEXTURE_CUBE_MAP: return new TextureD3D_Cube(this);
+      case GL_TEXTURE_3D: return new TextureD3D_3D(this);
+      case GL_TEXTURE_2D_ARRAY: return new TextureD3D_2DArray(this);
+      default:
+        UNREACHABLE();
+    }
 
-TextureCubeImpl *Renderer11::createTextureCube()
-{
-    return new TextureD3D_Cube(this);
-}
-
-Texture3DImpl *Renderer11::createTexture3D()
-{
-    return new TextureD3D_3D(this);
-}
-
-Texture2DArrayImpl *Renderer11::createTexture2DArray()
-{
-    return new TextureD3D_2DArray(this);
+    return NULL;
 }
 
 void Renderer11::readTextureData(ID3D11Texture2D *texture, unsigned int subResource, const gl::Rectangle &area, GLenum format,

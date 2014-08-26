@@ -137,7 +137,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         }
     }
 
-    Window *window = (Window*)(LONG_PTR)GetWindowLongPtr(hWnd, GWLP_USERDATA);
+    OSWindow *window = (OSWindow*)(LONG_PTR)GetWindowLongPtr(hWnd, GWLP_USERDATA);
     if (window)
     {
         switch (message)
@@ -468,4 +468,9 @@ void Win32Window::setMousePosition(int x, int y)
     ClientToScreen(mNativeWindow, &topLeft);
 
     SetCursorPos(topLeft.x + x, topLeft.y + y);
+}
+
+OSWindow *CreateOSWindow()
+{
+    return new Win32Window();
 }

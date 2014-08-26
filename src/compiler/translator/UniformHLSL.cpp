@@ -138,9 +138,9 @@ TString UniformHLSL::uniformsHeader(ShShaderOutput outputType, const ReferencedS
         {
             const TStructure *structure = type.getStruct();
             // If this is a nameless struct, we need to use its full definition, rather than its (empty) name.
-            // TypeString() will invoke defineNameless in this case, but layout qualifiers will not be taken into
-            // account in this case.
-            // TODO: handle nameless structs with layout qualifiers.
+            // TypeString() will invoke defineNameless in this case; qualifier prefixes are unnecessary for 
+            // nameless structs in ES, as nameless structs cannot be used anywhere that layout qualifiers are
+            // permitted.
             const TString &typeName = ((structure && !structure->name().empty()) ?
                                         QualifiedStructNameString(*structure, false, false) : TypeString(type));
 
@@ -269,7 +269,7 @@ TString UniformHLSL::interfaceBlockMembersString(const TInterfaceBlock &interfac
         if (blockStorage == EbsStd140)
         {
             // 2 and 3 component vector types in some cases need pre-padding
-            hlsl += padHelper.prePadding(fieldType);
+            hlsl += padHelper.prePaddingString(fieldType);
         }
 
         hlsl += "    " + InterfaceBlockFieldTypeString(field, blockStorage) +
