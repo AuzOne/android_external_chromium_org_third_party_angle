@@ -46,6 +46,7 @@ LOCAL_SRC_FILES := \
 	third_party/angle/src/compiler/translator/InitializeVariables.cpp \
 	third_party/angle/src/compiler/translator/IntermTraverse.cpp \
 	third_party/angle/src/compiler/translator/Intermediate.cpp \
+	third_party/angle/src/compiler/translator/IntermNode.cpp \
 	third_party/angle/src/compiler/translator/LoopInfo.cpp \
 	third_party/angle/src/compiler/translator/OutputESSL.cpp \
 	third_party/angle/src/compiler/translator/OutputGLSL.cpp \
