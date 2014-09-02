@@ -1,5 +1,3 @@
-
-#include "precompiled.h"
 //
 // Copyright (c) 2002-2012 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -10,17 +8,16 @@
 // the actual underlying surfaces of a Texture.
 
 #include "libGLESv2/renderer/d3d/d3d9/Image9.h"
-
+#include "libGLESv2/renderer/d3d/d3d9/renderer9_utils.h"
+#include "libGLESv2/renderer/d3d/d3d9/formatutils9.h"
+#include "libGLESv2/renderer/d3d/d3d9/Renderer9.h"
+#include "libGLESv2/renderer/d3d/d3d9/RenderTarget9.h"
+#include "libGLESv2/renderer/d3d/d3d9/TextureStorage9.h"
 #include "libGLESv2/main.h"
 #include "libGLESv2/Framebuffer.h"
 #include "libGLESv2/FramebufferAttachment.h"
 #include "libGLESv2/Renderbuffer.h"
-#include "libGLESv2/renderer/d3d/d3d9/Renderer9.h"
-#include "libGLESv2/renderer/d3d/d3d9/RenderTarget9.h"
-#include "libGLESv2/renderer/d3d/d3d9/TextureStorage9.h"
 
-#include "libGLESv2/renderer/d3d/d3d9/renderer9_utils.h"
-#include "libGLESv2/renderer/d3d/d3d9/formatutils9.h"
 
 namespace rx
 {

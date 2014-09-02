@@ -1,4 +1,3 @@
-#include "precompiled.h"
 //
 // Copyright (c) 2002-2014 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -173,7 +172,7 @@ bool Program::attachShader(Shader *shader)
             return false;
         }
 
-        mVertexShader = (VertexShader*)shader;
+        mVertexShader = shader;
         mVertexShader->addRef();
     }
     else if (shader->getType() == GL_FRAGMENT_SHADER)
@@ -183,7 +182,7 @@ bool Program::attachShader(Shader *shader)
             return false;
         }
 
-        mFragmentShader = (FragmentShader*)shader;
+        mFragmentShader = shader;
         mFragmentShader->addRef();
     }
     else UNREACHABLE();
@@ -303,14 +302,14 @@ ProgramBinary* Program::getProgramBinary() const
     return mProgramBinary.get();
 }
 
-bool Program::setProgramBinary(const void *binary, GLsizei length)
+bool Program::setProgramBinary(GLenum binaryFormat, const void *binary, GLsizei length)
 {
     unlink(false);
 
     mInfoLog.reset();
 
     mProgramBinary.set(new ProgramBinary(mRenderer));
-    mLinked = mProgramBinary->load(mInfoLog, binary, length);
+    mLinked = mProgramBinary->load(mInfoLog, binaryFormat, binary, length);
     if (!mLinked)
     {
         mProgramBinary.set(NULL);

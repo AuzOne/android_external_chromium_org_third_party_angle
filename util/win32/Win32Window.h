@@ -29,6 +29,8 @@ class Win32Window : public OSWindow
     void pushEvent(Event event);
 
     void setMousePosition(int x, int y);
+    bool resize(int width, int height);
+    bool setVisible(bool isVisible);
 
   private:
     std::string mClassName;

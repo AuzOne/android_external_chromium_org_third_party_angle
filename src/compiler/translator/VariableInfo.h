@@ -24,6 +24,7 @@ class CollectVariables : public TIntermTraverser
 
     virtual void visitSymbol(TIntermSymbol *symbol);
     virtual bool visitAggregate(Visit, TIntermAggregate *node);
+    virtual bool visitBinary(Visit visit, TIntermBinary *binaryNode);
 
   private:
     template <typename VarT>
@@ -48,8 +49,8 @@ class CollectVariables : public TIntermTraverser
 };
 
 // Expand struct variables to flattened lists of split variables
-// Implemented for sh::Varying and sh::Uniform.
 template <typename VarT>
-void ExpandVariables(const std::vector<VarT> &compact, std::vector<VarT> *expanded);
+void ExpandVariables(const std::vector<VarT> &compact,
+                     std::vector<sh::ShaderVariable> *expanded);
 
 #endif  // COMPILER_VARIABLE_INFO_H_

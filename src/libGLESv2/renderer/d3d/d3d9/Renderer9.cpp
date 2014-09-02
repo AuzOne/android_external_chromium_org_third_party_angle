@@ -1,4 +1,3 @@
-#include "precompiled.h"
 //
 // Copyright (c) 2012-2014 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -7,17 +6,6 @@
 
 // Renderer9.cpp: Implements a back-end specific class for the D3D9 renderer.
 
-#include "common/utilities.h"
-
-#include "libGLESv2/main.h"
-#include "libGLESv2/Buffer.h"
-#include "libGLESv2/Texture.h"
-#include "libGLESv2/Framebuffer.h"
-#include "libGLESv2/FramebufferAttachment.h"
-#include "libGLESv2/Renderbuffer.h"
-#include "libGLESv2/ProgramBinary.h"
-#include "libGLESv2/renderer/d3d/IndexDataManager.h"
-#include "libGLESv2/renderer/d3d/TextureD3D.h"
 #include "libGLESv2/renderer/d3d/d3d9/Renderer9.h"
 #include "libGLESv2/renderer/d3d/d3d9/renderer9_utils.h"
 #include "libGLESv2/renderer/d3d/d3d9/formatutils9.h"
@@ -33,11 +21,26 @@
 #include "libGLESv2/renderer/d3d/d3d9/Query9.h"
 #include "libGLESv2/renderer/d3d/d3d9/Fence9.h"
 #include "libGLESv2/renderer/d3d/d3d9/VertexArray9.h"
+#include "libGLESv2/renderer/d3d/IndexDataManager.h"
+#include "libGLESv2/renderer/d3d/ShaderD3D.h"
+#include "libGLESv2/renderer/d3d/TextureD3D.h"
+#include "libGLESv2/renderer/d3d/TransformFeedbackD3D.h"
+#include "libGLESv2/main.h"
+#include "libGLESv2/Buffer.h"
+#include "libGLESv2/Texture.h"
+#include "libGLESv2/Framebuffer.h"
+#include "libGLESv2/FramebufferAttachment.h"
+#include "libGLESv2/Renderbuffer.h"
+#include "libGLESv2/ProgramBinary.h"
 #include "libGLESv2/angletypes.h"
 
 #include "libEGL/Display.h"
 
+#include "common/utilities.h"
+
 #include "third_party/trace_event/trace_event.h"
+
+#include <sstream>
 
 // Can also be enabled by defining FORCE_REF_RAST in the project's predefined macros
 #define REF_RAST 0
@@ -153,6 +156,7 @@ Renderer9::~Renderer9()
 
 void Renderer9::release()
 {
+    releaseShaderCompiler();
     releaseDeviceResources();
 
     SafeRelease(mDevice);
@@ -598,6 +602,11 @@ QueryImpl *Renderer9::createQuery(GLenum type)
 FenceImpl *Renderer9::createFence()
 {
     return new Fence9(this);
+}
+
+TransformFeedbackImpl* Renderer9::createTransformFeedback()
+{
+    return new TransformFeedbackD3D();
 }
 
 bool Renderer9::supportsFastCopyBufferToTexture(GLenum internalFormat) const
@@ -2180,17 +2189,6 @@ GUID Renderer9::getAdapterIdentifier() const
     return mAdapterIdentifier.DeviceIdentifier;
 }
 
-unsigned int Renderer9::getMaxVertexTextureImageUnits() const
-{
-    META_ASSERT(MAX_TEXTURE_IMAGE_UNITS_VTF_SM3 <= gl::IMPLEMENTATION_MAX_VERTEX_TEXTURE_IMAGE_UNITS);
-    return mVertexTextureSupport ? MAX_TEXTURE_IMAGE_UNITS_VTF_SM3 : 0;
-}
-
-unsigned int Renderer9::getMaxCombinedTextureImageUnits() const
-{
-    return gl::MAX_TEXTURE_IMAGE_UNITS + getMaxVertexTextureImageUnits();
-}
-
 unsigned int Renderer9::getReservedVertexUniformVectors() const
 {
     return 2;   // dx_ViewAdjust and dx_DepthRange.
@@ -2201,59 +2199,12 @@ unsigned int Renderer9::getReservedFragmentUniformVectors() const
     return 3;   // dx_ViewCoords, dx_DepthFront and dx_DepthRange.
 }
 
-unsigned int Renderer9::getMaxVertexUniformVectors() const
-{
-    return MAX_VERTEX_CONSTANT_VECTORS_D3D9 - getReservedVertexUniformVectors();
-}
-
-unsigned int Renderer9::getMaxFragmentUniformVectors() const
-{
-    const int maxPixelConstantVectors = (getMajorShaderModel() >= 3) ? MAX_PIXEL_CONSTANT_VECTORS_SM3 : MAX_PIXEL_CONSTANT_VECTORS_SM2;
-
-    return maxPixelConstantVectors - getReservedFragmentUniformVectors();
-}
-
-unsigned int Renderer9::getMaxVaryingVectors() const
-{
-    return (getMajorShaderModel() >= 3) ? MAX_VARYING_VECTORS_SM3 : MAX_VARYING_VECTORS_SM2;
-}
-
-unsigned int Renderer9::getMaxVertexShaderUniformBuffers() const
-{
-    return 0;
-}
-
-unsigned int Renderer9::getMaxFragmentShaderUniformBuffers() const
-{
-    return 0;
-}
-
 unsigned int Renderer9::getReservedVertexUniformBuffers() const
 {
     return 0;
 }
 
 unsigned int Renderer9::getReservedFragmentUniformBuffers() const
-{
-    return 0;
-}
-
-unsigned int Renderer9::getMaxTransformFeedbackBuffers() const
-{
-    return 0;
-}
-
-unsigned int Renderer9::getMaxTransformFeedbackSeparateComponents() const
-{
-    return 0;
-}
-
-unsigned int Renderer9::getMaxTransformFeedbackInterleavedComponents() const
-{
-    return 0;
-}
-
-unsigned int Renderer9::getMaxUniformBufferSize() const
 {
     return 0;
 }
@@ -2267,20 +2218,6 @@ bool Renderer9::getShareHandleSupport() const
 bool Renderer9::getPostSubBufferSupport() const
 {
     return true;
-}
-
-int Renderer9::getMaxRecommendedElementsIndices() const
-{
-    // ES3 only
-    UNREACHABLE();
-    return 0;
-}
-
-int Renderer9::getMaxRecommendedElementsVertices() const
-{
-    // ES3 only
-    UNREACHABLE();
-    return 0;
 }
 
 int Renderer9::getMajorShaderModel() const
@@ -2621,7 +2558,7 @@ bool Renderer9::blitRect(gl::Framebuffer *readFramebuffer, const gl::Rectangle &
 }
 
 void Renderer9::readPixels(gl::Framebuffer *framebuffer, GLint x, GLint y, GLsizei width, GLsizei height, GLenum format,
-                           GLenum type, GLuint outputPitch, const gl::PixelPackState &pack, void* pixels)
+                           GLenum type, GLuint outputPitch, const gl::PixelPackState &pack, uint8_t *pixels)
 {
     ASSERT(pack.pixelBuffer.get() == NULL);
 
@@ -2664,7 +2601,7 @@ void Renderer9::readPixels(gl::Framebuffer *framebuffer, GLint x, GLint y, GLsiz
     {
         // Use the pixels ptr as a shared handle to write directly into client's memory
         result = mDevice->CreateOffscreenPlainSurface(desc.Width, desc.Height, desc.Format,
-                                                      D3DPOOL_SYSTEMMEM, &systemSurface, &pixels);
+                                                      D3DPOOL_SYSTEMMEM, &systemSurface, reinterpret_cast<void**>(&pixels));
         if (FAILED(result))
         {
             // Try again without the shared handle
@@ -2729,16 +2666,16 @@ void Renderer9::readPixels(gl::Framebuffer *framebuffer, GLint x, GLint y, GLsiz
         return;   // No sensible error to generate
     }
 
-    unsigned char *source;
+    uint8_t *source;
     int inputPitch;
     if (pack.reverseRowOrder)
     {
-        source = ((unsigned char*)lock.pBits) + lock.Pitch * (rect.bottom - rect.top - 1);
+        source = reinterpret_cast<uint8_t*>(lock.pBits) + lock.Pitch * (rect.bottom - rect.top - 1);
         inputPitch = -lock.Pitch;
     }
     else
     {
-        source = (unsigned char*)lock.pBits;
+        source = reinterpret_cast<uint8_t*>(lock.pBits);
         inputPitch = lock.Pitch;
     }
 
@@ -2747,10 +2684,9 @@ void Renderer9::readPixels(gl::Framebuffer *framebuffer, GLint x, GLint y, GLsiz
     if (sourceFormatInfo.format == format && sourceFormatInfo.type == type)
     {
         // Direct copy possible
-        unsigned char *dest = static_cast<unsigned char*>(pixels);
         for (int y = 0; y < rect.bottom - rect.top; y++)
         {
-            memcpy(dest + y * outputPitch, source + y * inputPitch, (rect.right - rect.left) * sourceFormatInfo.pixelBytes);
+            memcpy(pixels + y * outputPitch, source + y * inputPitch, (rect.right - rect.left) * sourceFormatInfo.pixelBytes);
         }
     }
     else
@@ -2768,8 +2704,8 @@ void Renderer9::readPixels(gl::Framebuffer *framebuffer, GLint x, GLint y, GLsiz
             {
                 for (int x = 0; x < rect.right - rect.left; x++)
                 {
-                    void *dest = static_cast<unsigned char*>(pixels) + y * outputPitch + x * destFormatInfo.pixelBytes;
-                    void *src = static_cast<unsigned char*>(source) + y * inputPitch + x * sourceFormatInfo.pixelBytes;
+                    uint8_t *dest = pixels + y * outputPitch + x * destFormatInfo.pixelBytes;
+                    const uint8_t *src = source + y * inputPitch + x * sourceFormatInfo.pixelBytes;
 
                     fastCopyFunc(src, dest);
                 }
@@ -2777,18 +2713,18 @@ void Renderer9::readPixels(gl::Framebuffer *framebuffer, GLint x, GLint y, GLsiz
         }
         else
         {
-            gl::ColorF temp;
+            uint8_t temp[sizeof(gl::ColorF)];
             for (int y = 0; y < rect.bottom - rect.top; y++)
             {
                 for (int x = 0; x < rect.right - rect.left; x++)
                 {
-                    void *dest = reinterpret_cast<unsigned char*>(pixels) + y * outputPitch + x * destFormatInfo.pixelBytes;
-                    void *src = source + y * inputPitch + x * sourceFormatInfo.pixelBytes;
+                    uint8_t *dest = pixels + y * outputPitch + x * destFormatInfo.pixelBytes;
+                    const uint8_t *src = source + y * inputPitch + x * sourceFormatInfo.pixelBytes;
 
                     // readFunc and writeFunc will be using the same type of color, CopyTexImage
                     // will not allow the copy otherwise.
-                    sourceD3DFormatInfo.colorReadFunction(src, &temp);
-                    destFormatTypeInfo.colorWriteFunction(&temp, dest);
+                    sourceD3DFormatInfo.colorReadFunction(src, temp);
+                    destFormatTypeInfo.colorWriteFunction(temp, dest);
                 }
             }
         }
@@ -2820,6 +2756,25 @@ RenderTarget *Renderer9::createRenderTarget(int width, int height, GLenum format
 {
     RenderTarget9 *renderTarget = new RenderTarget9(this, width, height, format, samples);
     return renderTarget;
+}
+
+ShaderImpl *Renderer9::createShader(GLenum type)
+{
+    switch (type)
+    {
+      case GL_VERTEX_SHADER:
+        return new VertexShaderD3D(this);
+      case GL_FRAGMENT_SHADER:
+        return new FragmentShaderD3D(this);
+      default:
+        UNREACHABLE();
+        return NULL;
+    }
+}
+
+void Renderer9::releaseShaderCompiler()
+{
+    ShaderD3D::releaseCompiler();
 }
 
 ShaderExecutable *Renderer9::loadExecutable(const void *function, size_t length, rx::ShaderType type,

@@ -1937,12 +1937,6 @@ bool OutputHLSL::visitAggregate(Visit visit, TIntermAggregate *node)
             }
             else if (variable && IsVaryingOut(variable->getQualifier()))
             {
-                // Skip translation of invariant declarations
-                if (variable->getBasicType() == EbtInvariant)
-                {
-                    return false;
-                }
-
                 for (TIntermSequence::iterator sit = sequence->begin(); sit != sequence->end(); sit++)
                 {
                     TIntermSymbol *symbol = (*sit)->getAsSymbolNode();
@@ -1966,6 +1960,9 @@ bool OutputHLSL::visitAggregate(Visit visit, TIntermAggregate *node)
             out << ", ";
         }
         break;
+      case EOpInvariantDeclaration:
+        // Do not do any translation
+        return false;
       case EOpPrototype:
         if (visit == PreVisit)
         {
@@ -2925,29 +2922,12 @@ const ConstantUnion *OutputHLSL::writeConstantUnion(const TType &type, const Con
     return constUnion;
 }
 
-class DeclareVaryingTraverser : public GetVariableTraverser<Varying>
-{
-  public:
-    DeclareVaryingTraverser(std::vector<Varying> *output,
-                            InterpolationType interpolation)
-        : GetVariableTraverser(output),
-          mInterpolation(interpolation)
-    {}
-
-  private:
-    void visitVariable(Varying *varying)
-    {
-        varying->interpolation = mInterpolation;
-    }
-
-    InterpolationType mInterpolation;
-};
-
 void OutputHLSL::declareVaryingToList(const TType &type, TQualifier baseTypeQualifier,
                                       const TString &name, std::vector<Varying> &fieldsOut)
 {
-    DeclareVaryingTraverser traverser(&fieldsOut, GetInterpolationType(baseTypeQualifier));
-    traverser.traverse(type, name);
+    GetVariableTraverser traverser;
+    traverser.traverse(type, name, &fieldsOut);
+    fieldsOut.back().interpolation = GetInterpolationType(baseTypeQualifier);
 }
 
 }

@@ -1,4 +1,3 @@
-#include "precompiled.h"
 //
 // Copyright (c) 2013 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -9,11 +8,10 @@
 
 #include "libGLESv2/renderer/d3d/d3d11/VertexBuffer11.h"
 #include "libGLESv2/renderer/d3d/d3d11/Buffer11.h"
-
-#include "libGLESv2/Buffer.h"
 #include "libGLESv2/renderer/d3d/d3d11/Renderer11.h"
-#include "libGLESv2/VertexAttribute.h"
 #include "libGLESv2/renderer/d3d/d3d11/formatutils11.h"
+#include "libGLESv2/Buffer.h"
+#include "libGLESv2/VertexAttribute.h"
 
 namespace rx
 {
@@ -83,24 +81,24 @@ bool VertexBuffer11::storeVertexAttributes(const gl::VertexAttribute &attrib, co
             return false;
         }
 
-        char* output = reinterpret_cast<char*>(mappedResource.pData) + offset;
+        uint8_t* output = reinterpret_cast<uint8_t*>(mappedResource.pData) + offset;
 
-        const char *input = NULL;
+        const uint8_t *input = NULL;
         if (attrib.enabled)
         {
             if (buffer)
             {
                 Buffer11 *storage = Buffer11::makeBuffer11(buffer->getImplementation());
-                input = static_cast<const char*>(storage->getData()) + static_cast<int>(attrib.offset);
+                input = static_cast<const uint8_t*>(storage->getData()) + static_cast<int>(attrib.offset);
             }
             else
             {
-                input = static_cast<const char*>(attrib.pointer);
+                input = static_cast<const uint8_t*>(attrib.pointer);
             }
         }
         else
         {
-            input = reinterpret_cast<const char*>(currentValue.FloatValues);
+            input = reinterpret_cast<const uint8_t*>(currentValue.FloatValues);
         }
 
         if (instances == 0 || attrib.divisor == 0)

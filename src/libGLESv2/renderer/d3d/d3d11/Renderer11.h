@@ -103,26 +103,12 @@ class Renderer11 : public Renderer
     virtual std::string getRendererDescription() const;
     virtual GUID getAdapterIdentifier() const;
 
-    virtual unsigned int getMaxVertexTextureImageUnits() const;
-    virtual unsigned int getMaxCombinedTextureImageUnits() const;
     virtual unsigned int getReservedVertexUniformVectors() const;
     virtual unsigned int getReservedFragmentUniformVectors() const;
-    virtual unsigned int getMaxVertexUniformVectors() const;
-    virtual unsigned int getMaxFragmentUniformVectors() const;
-    virtual unsigned int getMaxVaryingVectors() const;
-    virtual unsigned int getMaxVertexShaderUniformBuffers() const;
-    virtual unsigned int getMaxFragmentShaderUniformBuffers() const;
     virtual unsigned int getReservedVertexUniformBuffers() const;
     virtual unsigned int getReservedFragmentUniformBuffers() const;
-    unsigned int getReservedVaryings() const;
-    virtual unsigned int getMaxTransformFeedbackBuffers() const;
-    virtual unsigned int getMaxTransformFeedbackSeparateComponents() const;
-    virtual unsigned int getMaxTransformFeedbackInterleavedComponents() const;
-    virtual unsigned int getMaxUniformBufferSize() const;
     virtual bool getShareHandleSupport() const;
     virtual bool getPostSubBufferSupport() const;
-    virtual int getMaxRecommendedElementsIndices() const;
-    virtual int getMaxRecommendedElementsVertices() const;
 
     virtual int getMajorShaderModel() const;
     virtual int getMinSwapInterval() const;
@@ -146,13 +132,17 @@ class Renderer11 : public Renderer
     virtual bool blitRect(gl::Framebuffer *readTarget, const gl::Rectangle &readRect, gl::Framebuffer *drawTarget, const gl::Rectangle &drawRect,
                           const gl::Rectangle *scissor, bool blitRenderTarget, bool blitDepth, bool blitStencil, GLenum filter);
     virtual void readPixels(gl::Framebuffer *framebuffer, GLint x, GLint y, GLsizei width, GLsizei height, GLenum format,
-                            GLenum type, GLuint outputPitch, const gl::PixelPackState &pack, void* pixels);
+                            GLenum type, GLuint outputPitch, const gl::PixelPackState &pack, uint8_t *pixels);
 
     // RenderTarget creation
     virtual RenderTarget *createRenderTarget(SwapChain *swapChain, bool depth);
     virtual RenderTarget *createRenderTarget(int width, int height, GLenum format, GLsizei samples);
 
+    // Shader creation
+    virtual ShaderImpl *createShader(GLenum type);
+
     // Shader operations
+    virtual void releaseShaderCompiler();
     virtual ShaderExecutable *loadExecutable(const void *function, size_t length, rx::ShaderType type,
                                              const std::vector<gl::LinkedVarying> &transformFeedbackVaryings,
                                              bool separatedOutputBuffers);
@@ -185,6 +175,9 @@ class Renderer11 : public Renderer
     virtual QueryImpl *createQuery(GLenum type);
     virtual FenceImpl *createFence();
 
+    // Transform Feedback creation
+    virtual TransformFeedbackImpl* createTransformFeedback();
+
     // D3D11-renderer specific methods
     ID3D11Device *getDevice() { return mDevice; }
     ID3D11DeviceContext *getDeviceContext() { return mDeviceContext; };
@@ -200,7 +193,7 @@ class Renderer11 : public Renderer
     bool getRenderTargetResource(gl::FramebufferAttachment *colorbuffer, unsigned int *subresourceIndex, ID3D11Texture2D **resource);
     void unapplyRenderTargets();
     void setOneTimeRenderTarget(ID3D11RenderTargetView *renderTargetView);
-    void packPixels(ID3D11Texture2D *readTexture, const PackPixelsParams &params, void *pixelsOut);
+    void packPixels(ID3D11Texture2D *readTexture, const PackPixelsParams &params, uint8_t *pixelsOut);
 
     virtual bool getLUID(LUID *adapterLuid) const;
     virtual rx::VertexConversionType getVertexConversionType(const gl::VertexFormat &vertexFormat) const;
@@ -215,7 +208,7 @@ class Renderer11 : public Renderer
     void drawTriangleFan(GLsizei count, GLenum type, const GLvoid *indices, int minIndex, gl::Buffer *elementArrayBuffer, int instances);
 
     void readTextureData(ID3D11Texture2D *texture, unsigned int subResource, const gl::Rectangle &area, GLenum format,
-                         GLenum type, GLuint outputPitch, const gl::PixelPackState &pack, void *pixels);
+                         GLenum type, GLuint outputPitch, const gl::PixelPackState &pack, uint8_t *pixels);
 
     bool blitRenderbufferRect(const gl::Rectangle &readRect, const gl::Rectangle &drawRect, RenderTarget *readRenderTarget,
                               RenderTarget *drawRenderTarget, GLenum filter, const gl::Rectangle *scissor,

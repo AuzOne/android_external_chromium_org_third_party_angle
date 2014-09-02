@@ -1,4 +1,3 @@
-#include "precompiled.h"
 //
 // Copyright 2014 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -7,9 +6,9 @@
 
 // TextureD3D.cpp: Implementations of the Texture interfaces shared betweeen the D3D backends.
 
-#include "common/mathutil.h"
-#include "common/utilities.h"
-#include "libEGL/Surface.h"
+#include "libGLESv2/renderer/d3d/TextureD3D.h"
+#include "libGLESv2/renderer/d3d/TextureStorage.h"
+#include "libGLESv2/renderer/d3d/ImageD3D.h"
 #include "libGLESv2/Buffer.h"
 #include "libGLESv2/Framebuffer.h"
 #include "libGLESv2/Texture.h"
@@ -18,9 +17,11 @@
 #include "libGLESv2/renderer/BufferImpl.h"
 #include "libGLESv2/renderer/RenderTarget.h"
 #include "libGLESv2/renderer/Renderer.h"
-#include "libGLESv2/renderer/d3d/ImageD3D.h"
-#include "libGLESv2/renderer/d3d/TextureD3D.h"
-#include "libGLESv2/renderer/d3d/TextureStorage.h"
+
+#include "libEGL/Surface.h"
+
+#include "common/mathutil.h"
+#include "common/utilities.h"
 
 namespace rx
 {
@@ -219,12 +220,15 @@ TextureD3D_2D::TextureD3D_2D(Renderer *renderer)
 
 TextureD3D_2D::~TextureD3D_2D()
 {
-    SafeDelete(mTexStorage);
-
+    // Delete the Images before the TextureStorage.
+    // Images might be relying on the TextureStorage for some of their data.
+    // If TextureStorage is deleted before the Images, then their data will be wastefully copied back from the GPU before we delete the Images.
     for (int i = 0; i < gl::IMPLEMENTATION_MAX_TEXTURE_LEVELS; ++i)
     {
         delete mImageArray[i];
     }
+
+    SafeDelete(mTexStorage);
 }
 
 Image *TextureD3D_2D::getImage(int level, int layer) const
@@ -762,8 +766,9 @@ TextureD3D_Cube::TextureD3D_Cube(Renderer *renderer)
 
 TextureD3D_Cube::~TextureD3D_Cube()
 {
-    SafeDelete(mTexStorage);
-
+    // Delete the Images before the TextureStorage.
+    // Images might be relying on the TextureStorage for some of their data.
+    // If TextureStorage is deleted before the Images, then their data will be wastefully copied back from the GPU before we delete the Images.
     for (int i = 0; i < 6; i++)
     {
         for (int j = 0; j < gl::IMPLEMENTATION_MAX_TEXTURE_LEVELS; ++j)
@@ -771,6 +776,8 @@ TextureD3D_Cube::~TextureD3D_Cube()
             SafeDelete(mImageArray[i][j]);
         }
     }
+
+    SafeDelete(mTexStorage);
 }
 
 Image *TextureD3D_Cube::getImage(int level, int layer) const
@@ -1283,12 +1290,15 @@ TextureD3D_3D::TextureD3D_3D(Renderer *renderer)
 
 TextureD3D_3D::~TextureD3D_3D()
 {
-    SafeDelete(mTexStorage);
-
+    // Delete the Images before the TextureStorage.
+    // Images might be relying on the TextureStorage for some of their data.
+    // If TextureStorage is deleted before the Images, then their data will be wastefully copied back from the GPU before we delete the Images.
     for (int i = 0; i < gl::IMPLEMENTATION_MAX_TEXTURE_LEVELS; ++i)
     {
         delete mImageArray[i];
     }
+
+    SafeDelete(mTexStorage);
 }
 
 Image *TextureD3D_3D::getImage(int level, int layer) const
@@ -1798,9 +1808,11 @@ TextureD3D_2DArray::TextureD3D_2DArray(Renderer *renderer)
 
 TextureD3D_2DArray::~TextureD3D_2DArray()
 {
-    SafeDelete(mTexStorage);
-
+    // Delete the Images before the TextureStorage.
+    // Images might be relying on the TextureStorage for some of their data.
+    // If TextureStorage is deleted before the Images, then their data will be wastefully copied back from the GPU before we delete the Images.
     deleteImages();
+    SafeDelete(mTexStorage);
 }
 
 Image *TextureD3D_2DArray::getImage(int level, int layer) const

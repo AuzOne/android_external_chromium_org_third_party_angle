@@ -1,4 +1,3 @@
-#include "precompiled.h"
 //
 // Copyright (c) 2012-2014 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -15,6 +14,7 @@
 #include "libGLESv2/FramebufferAttachment.h"
 
 #include "common/debug.h"
+
 #include "third_party/murmurhash/MurmurHash3.h"
 
 namespace rx

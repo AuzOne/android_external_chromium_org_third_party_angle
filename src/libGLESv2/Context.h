@@ -10,23 +10,23 @@
 #ifndef LIBGLESV2_CONTEXT_H_
 #define LIBGLESV2_CONTEXT_H_
 
+#include "common/angleutils.h"
+#include "common/RefCountObject.h"
+#include "libGLESv2/Caps.h"
+#include "libGLESv2/Error.h"
+#include "libGLESv2/HandleAllocator.h"
+#include "libGLESv2/angletypes.h"
+#include "libGLESv2/Constants.h"
+#include "libGLESv2/VertexAttribute.h"
+#include "libGLESv2/State.h"
+
 #include "angle_gl.h"
-#include <EGL/egl.h>
 
 #include <string>
 #include <set>
 #include <map>
 #include <unordered_map>
 #include <array>
-
-#include "common/angleutils.h"
-#include "common/RefCountObject.h"
-#include "libGLESv2/Caps.h"
-#include "libGLESv2/HandleAllocator.h"
-#include "libGLESv2/angletypes.h"
-#include "libGLESv2/Constants.h"
-#include "libGLESv2/VertexAttribute.h"
-#include "libGLESv2/State.h"
 
 namespace rx
 {
@@ -134,7 +134,7 @@ class Context
     void bindPixelUnpackBuffer(GLuint buffer);
     void useProgram(GLuint program);
     void linkProgram(GLuint program);
-    void setProgramBinary(GLuint program, const void *binary, GLint length);
+    void setProgramBinary(GLuint program, GLenum binaryFormat, const void *binary, GLint length);
     void bindTransformFeedback(GLuint transformFeedback);
 
     void beginQuery(GLenum target, GLuint query);
@@ -193,14 +193,12 @@ class Context
 
     void readPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, GLsizei *bufSize, void* pixels);
     void drawArrays(GLenum mode, GLint first, GLsizei count, GLsizei instances);
-    void drawElements(GLenum mode, GLsizei count, GLenum type, const GLvoid *indices, GLsizei instances);
+    void drawElements(GLenum mode, GLsizei count, GLenum type,
+                      const GLvoid *indices, GLsizei instances,
+                      const rx::RangeUI &indexRange);
     void sync(bool block);   // flush/finish
 
-    void recordInvalidEnum();
-    void recordInvalidValue();
-    void recordInvalidOperation();
-    void recordOutOfMemory();
-    void recordInvalidFramebufferOperation();
+    void recordError(const Error &error);
 
     GLenum getError();
     GLenum getResetStatus();
@@ -212,10 +210,6 @@ class Context
     const TextureCapsMap &getTextureCaps() const;
     const Extensions &getExtensions() const;
 
-    unsigned int getMaximumCombinedTextureImageUnits() const;
-    unsigned int getMaximumCombinedUniformBufferBindings() const;
-    unsigned int getMaxTransformFeedbackBufferBindings() const;
-    GLintptr getUniformBufferOffsetAlignment() const;
     const std::string &getRendererString() const;
 
     const std::string &getExtensionString() const;
@@ -234,6 +228,8 @@ class Context
 
     State &getState() { return mState; }
     const State &getState() const { return mState; }
+
+    void releaseShaderCompiler();
 
   private:
     DISALLOW_COPY_AND_ASSIGN(Context);
@@ -316,11 +312,8 @@ class Context
     BindingPointer<Texture> mIncompleteTextures[TEXTURE_TYPE_COUNT];
 
     // Recorded errors
-    bool mInvalidEnum;
-    bool mInvalidValue;
-    bool mInvalidOperation;
-    bool mOutOfMemory;
-    bool mInvalidFramebufferOperation;
+    typedef std::set<GLenum> ErrorSet;
+    ErrorSet mErrors;
 
     // Current/lost context flags
     bool mHasBeenCurrent;
@@ -328,9 +321,6 @@ class Context
     GLenum mResetStatus;
     GLenum mResetStrategy;
     bool mRobustAccess;
-
-    bool mSupportsVertexTexture;
-    int mNumCompressedTextureFormats;
 
     ResourceManager *mResourceManager;
 };

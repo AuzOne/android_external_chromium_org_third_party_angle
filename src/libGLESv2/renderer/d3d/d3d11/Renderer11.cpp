@@ -1,4 +1,3 @@
-#include "precompiled.h"
 //
 // Copyright (c) 2012-2014 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -8,12 +7,13 @@
 // Renderer11.cpp: Implements a back-end specific class for the D3D11 renderer.
 
 #include "libGLESv2/main.h"
-#include "common/utilities.h"
 #include "libGLESv2/Buffer.h"
 #include "libGLESv2/FramebufferAttachment.h"
 #include "libGLESv2/ProgramBinary.h"
 #include "libGLESv2/Framebuffer.h"
+#include "libGLESv2/renderer/d3d/ShaderD3D.h"
 #include "libGLESv2/renderer/d3d/TextureD3D.h"
+#include "libGLESv2/renderer/d3d/TransformFeedbackD3D.h"
 #include "libGLESv2/renderer/d3d/d3d11/Renderer11.h"
 #include "libGLESv2/renderer/d3d/d3d11/RenderTarget11.h"
 #include "libGLESv2/renderer/d3d/d3d11/renderer11_utils.h"
@@ -34,7 +34,14 @@
 #include "libGLESv2/renderer/d3d/d3d11/PixelTransfer11.h"
 #include "libGLESv2/renderer/d3d/d3d11/VertexArray11.h"
 #include "libGLESv2/renderer/d3d/d3d11/Buffer11.h"
+
 #include "libEGL/Display.h"
+
+#include "common/utilities.h"
+
+#include <EGL/eglext.h>
+
+#include <sstream>
 
 // Enable ANGLE_SKIP_DXGI_1_2_CHECK if there is not a possibility of using cross-process
 // HWNDs or the Windows 7 Platform Update (KB2670838) is expected to be installed.
@@ -415,11 +422,7 @@ void Renderer11::setSamplerState(gl::SamplerType type, int index, const gl::Samp
 {
     if (type == gl::SAMPLER_PIXEL)
     {
-        if (index < 0 || index >= gl::MAX_TEXTURE_IMAGE_UNITS)
-        {
-            ERR("Pixel shader sampler index %i is not valid.", index);
-            return;
-        }
+        ASSERT(static_cast<unsigned int>(index) < getRendererCaps().maxTextureImageUnits);
 
         if (mForceSetPixelSamplerStates[index] || memcmp(&samplerState, &mCurPixelSamplerStates[index], sizeof(gl::SamplerState)) != 0)
         {
@@ -440,11 +443,7 @@ void Renderer11::setSamplerState(gl::SamplerType type, int index, const gl::Samp
     }
     else if (type == gl::SAMPLER_VERTEX)
     {
-        if (index < 0 || index >= (int)getMaxVertexTextureImageUnits())
-        {
-            ERR("Vertex shader sampler index %i is not valid.", index);
-            return;
-        }
+        ASSERT(static_cast<unsigned int>(index) < getRendererCaps().maxVertexTextureImageUnits);
 
         if (mForceSetVertexSamplerStates[index] || memcmp(&samplerState, &mCurVertexSamplerStates[index], sizeof(gl::SamplerState)) != 0)
         {
@@ -494,11 +493,7 @@ void Renderer11::setTexture(gl::SamplerType type, int index, gl::Texture *textur
 
     if (type == gl::SAMPLER_PIXEL)
     {
-        if (index < 0 || index >= gl::MAX_TEXTURE_IMAGE_UNITS)
-        {
-            ERR("Pixel shader sampler index %i is not valid.", index);
-            return;
-        }
+        ASSERT(static_cast<unsigned int>(index) < getRendererCaps().maxTextureImageUnits);
 
         if (forceSetTexture || mCurPixelSRVs[index] != textureSRV)
         {
@@ -509,11 +504,7 @@ void Renderer11::setTexture(gl::SamplerType type, int index, gl::Texture *textur
     }
     else if (type == gl::SAMPLER_VERTEX)
     {
-        if (index < 0 || index >= (int)getMaxVertexTextureImageUnits())
-        {
-            ERR("Vertex shader sampler index %i is not valid.", index);
-            return;
-        }
+        ASSERT(static_cast<unsigned int>(index) < getRendererCaps().maxVertexTextureImageUnits);
 
         if (forceSetTexture || mCurVertexSRVs[index] != textureSRV)
         {
@@ -984,7 +975,7 @@ void Renderer11::applyTransformFeedbackBuffers(gl::Buffer *transformFeedbackBuff
         if (transformFeedbackBuffers[i])
         {
             Buffer11 *storage = Buffer11::makeBuffer11(transformFeedbackBuffers[i]->getImplementation());
-            ID3D11Buffer *buffer = storage->getBuffer(BUFFER_USAGE_VERTEX_OR_TRANSFORM_FEEDBACK);
+            ID3D11Buffer *buffer = storage->getBuffer(BUFFER_USAGE_TRANSFORM_FEEDBACK);
 
             d3dBuffers[i] = buffer;
             d3dOffsets[i] = (mAppliedTFBuffers[i] != buffer) ? static_cast<UINT>(offsets[i]) : -1;
@@ -1707,6 +1698,7 @@ bool Renderer11::testDeviceResettable()
 
 void Renderer11::release()
 {
+    releaseShaderCompiler();
     releaseDeviceResources();
 
     SafeRelease(mDxgiFactory);
@@ -1781,25 +1773,6 @@ GUID Renderer11::getAdapterIdentifier() const
     return adapterId;
 }
 
-unsigned int Renderer11::getMaxVertexTextureImageUnits() const
-{
-    META_ASSERT(MAX_TEXTURE_IMAGE_UNITS_VTF_SM4 <= gl::IMPLEMENTATION_MAX_VERTEX_TEXTURE_IMAGE_UNITS);
-    switch (mFeatureLevel)
-    {
-      case D3D_FEATURE_LEVEL_11_0:
-      case D3D_FEATURE_LEVEL_10_1:
-      case D3D_FEATURE_LEVEL_10_0:
-        return MAX_TEXTURE_IMAGE_UNITS_VTF_SM4;
-      default: UNREACHABLE();
-        return 0;
-    }
-}
-
-unsigned int Renderer11::getMaxCombinedTextureImageUnits() const
-{
-    return gl::MAX_TEXTURE_IMAGE_UNITS + getMaxVertexTextureImageUnits();
-}
-
 unsigned int Renderer11::getReservedVertexUniformVectors() const
 {
     return 0;   // Driver uniforms are stored in a separate constant buffer
@@ -1808,72 +1781,6 @@ unsigned int Renderer11::getReservedVertexUniformVectors() const
 unsigned int Renderer11::getReservedFragmentUniformVectors() const
 {
     return 0;   // Driver uniforms are stored in a separate constant buffer
-}
-
-unsigned int Renderer11::getMaxVertexUniformVectors() const
-{
-    META_ASSERT(MAX_VERTEX_UNIFORM_VECTORS_D3D11 <= D3D10_REQ_CONSTANT_BUFFER_ELEMENT_COUNT);
-    ASSERT(mFeatureLevel >= D3D_FEATURE_LEVEL_10_0);
-    return MAX_VERTEX_UNIFORM_VECTORS_D3D11;
-}
-
-unsigned int Renderer11::getMaxFragmentUniformVectors() const
-{
-    META_ASSERT(MAX_FRAGMENT_UNIFORM_VECTORS_D3D11 <= D3D10_REQ_CONSTANT_BUFFER_ELEMENT_COUNT);
-    ASSERT(mFeatureLevel >= D3D_FEATURE_LEVEL_10_0);
-    return MAX_FRAGMENT_UNIFORM_VECTORS_D3D11;
-}
-
-unsigned int Renderer11::getMaxVaryingVectors() const
-{
-    META_ASSERT(gl::IMPLEMENTATION_MAX_VARYING_VECTORS == D3D11_VS_OUTPUT_REGISTER_COUNT);
-    META_ASSERT(D3D11_VS_OUTPUT_REGISTER_COUNT <= D3D11_PS_INPUT_REGISTER_COUNT);
-    META_ASSERT(D3D10_VS_OUTPUT_REGISTER_COUNT <= D3D10_PS_INPUT_REGISTER_COUNT);
-    switch (mFeatureLevel)
-    {
-      case D3D_FEATURE_LEVEL_11_0:
-        return D3D11_VS_OUTPUT_REGISTER_COUNT - getReservedVaryings();
-      case D3D_FEATURE_LEVEL_10_1:
-        return D3D10_1_VS_OUTPUT_REGISTER_COUNT - getReservedVaryings();
-      case D3D_FEATURE_LEVEL_10_0:
-        return D3D10_VS_OUTPUT_REGISTER_COUNT - getReservedVaryings();
-      default: UNREACHABLE();
-        return 0;
-    }
-}
-
-unsigned int Renderer11::getMaxVertexShaderUniformBuffers() const
-{
-    META_ASSERT(gl::IMPLEMENTATION_MAX_VERTEX_SHADER_UNIFORM_BUFFERS >= D3D10_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT &&
-                gl::IMPLEMENTATION_MAX_VERTEX_SHADER_UNIFORM_BUFFERS >= D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT);
-
-    switch (mFeatureLevel)
-    {
-      case D3D_FEATURE_LEVEL_11_0:
-        return D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT - getReservedVertexUniformBuffers();
-      case D3D_FEATURE_LEVEL_10_1:
-      case D3D_FEATURE_LEVEL_10_0:
-        return D3D10_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT - getReservedVertexUniformBuffers();
-      default: UNREACHABLE();
-        return 0;
-    }
-}
-
-unsigned int Renderer11::getMaxFragmentShaderUniformBuffers() const
-{
-    META_ASSERT(gl::IMPLEMENTATION_MAX_FRAGMENT_SHADER_UNIFORM_BUFFERS >= D3D10_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT &&
-                gl::IMPLEMENTATION_MAX_FRAGMENT_SHADER_UNIFORM_BUFFERS >= D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT);
-
-    switch (mFeatureLevel)
-    {
-      case D3D_FEATURE_LEVEL_11_0:
-        return D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT - getReservedFragmentUniformBuffers();
-      case D3D_FEATURE_LEVEL_10_1:
-      case D3D_FEATURE_LEVEL_10_0:
-        return D3D10_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT - getReservedFragmentUniformBuffers();
-      default: UNREACHABLE();
-        return 0;
-    }
 }
 
 unsigned int Renderer11::getReservedVertexUniformBuffers() const
@@ -1888,69 +1795,6 @@ unsigned int Renderer11::getReservedFragmentUniformBuffers() const
     return 2;
 }
 
-unsigned int Renderer11::getReservedVaryings() const
-{
-    // We potentially reserve varyings for gl_Position, dx_Position, gl_FragCoord and gl_PointSize
-    return 4;
-}
-
-
-unsigned int Renderer11::getMaxTransformFeedbackBuffers() const
-{
-    META_ASSERT(gl::IMPLEMENTATION_MAX_TRANSFORM_FEEDBACK_BUFFERS >= D3D11_SO_BUFFER_SLOT_COUNT &&
-                gl::IMPLEMENTATION_MAX_TRANSFORM_FEEDBACK_BUFFERS >= D3D10_SO_BUFFER_SLOT_COUNT);
-
-    switch (mFeatureLevel)
-    {
-      case D3D_FEATURE_LEVEL_11_0:
-        return D3D11_SO_BUFFER_SLOT_COUNT;
-      case D3D_FEATURE_LEVEL_10_1:
-        return D3D10_1_SO_BUFFER_SLOT_COUNT;
-      case D3D_FEATURE_LEVEL_10_0:
-        return D3D10_SO_BUFFER_SLOT_COUNT;
-      default: UNREACHABLE();
-        return 0;
-    }
-}
-
-unsigned int Renderer11::getMaxTransformFeedbackSeparateComponents() const
-{
-    switch (mFeatureLevel)
-    {
-      case D3D_FEATURE_LEVEL_11_0:
-        return getMaxTransformFeedbackInterleavedComponents() / getMaxTransformFeedbackBuffers();
-      case D3D_FEATURE_LEVEL_10_1:
-      case D3D_FEATURE_LEVEL_10_0:
-        // D3D 10 and 10.1 only allow one output per output slot if an output slot other than zero
-        // is used.
-        return 4;
-      default: UNREACHABLE();
-        return 0;
-    }
-}
-
-unsigned int Renderer11::getMaxTransformFeedbackInterleavedComponents() const
-{
-    return (getMaxVaryingVectors() * 4);
-}
-
-unsigned int Renderer11::getMaxUniformBufferSize() const
-{
-    // Each component is a 4-element vector of 4-byte units (floats)
-    const unsigned int bytesPerComponent = 4 * sizeof(float);
-
-    switch (mFeatureLevel)
-    {
-      case D3D_FEATURE_LEVEL_11_0:
-        return D3D11_REQ_CONSTANT_BUFFER_ELEMENT_COUNT * bytesPerComponent;
-      case D3D_FEATURE_LEVEL_10_1:
-      case D3D_FEATURE_LEVEL_10_0:
-        return D3D10_REQ_CONSTANT_BUFFER_ELEMENT_COUNT * bytesPerComponent;
-      default: UNREACHABLE();
-        return 0;
-    }
-}
-
 bool Renderer11::getShareHandleSupport() const
 {
     // We only currently support share handles with BGRA surfaces, because
@@ -1963,24 +1807,6 @@ bool Renderer11::getPostSubBufferSupport() const
 {
     // D3D11 does not support present with dirty rectangles until D3D11.1 and DXGI 1.2.
     return false;
-}
-
-int Renderer11::getMaxRecommendedElementsIndices() const
-{
-    META_ASSERT(D3D11_REQ_DRAWINDEXED_INDEX_COUNT_2_TO_EXP == 32);
-    META_ASSERT(D3D10_REQ_DRAWINDEXED_INDEX_COUNT_2_TO_EXP == 32);
-
-    // D3D11 allows up to 2^32 elements, but we report max signed int for convenience.
-    return std::numeric_limits<GLint>::max();
-}
-
-int Renderer11::getMaxRecommendedElementsVertices() const
-{
-    META_ASSERT(D3D11_REQ_DRAW_VERTEX_COUNT_2_TO_EXP == 32);
-    META_ASSERT(D3D10_REQ_DRAW_VERTEX_COUNT_2_TO_EXP == 32);
-
-    // D3D11 allows up to 2^32 elements, but we report max signed int for convenience.
-    return std::numeric_limits<GLint>::max();
 }
 
 int Renderer11::getMajorShaderModel() const
@@ -2379,6 +2205,25 @@ RenderTarget *Renderer11::createRenderTarget(int width, int height, GLenum forma
     return renderTarget;
 }
 
+ShaderImpl *Renderer11::createShader(GLenum type)
+{
+    switch (type)
+    {
+      case GL_VERTEX_SHADER:
+        return new VertexShaderD3D(this);
+      case GL_FRAGMENT_SHADER:
+        return new FragmentShaderD3D(this);
+      default:
+        UNREACHABLE();
+        return NULL;
+    }
+}
+
+void Renderer11::releaseShaderCompiler()
+{
+    ShaderD3D::releaseCompiler();
+}
+
 ShaderExecutable *Renderer11::loadExecutable(const void *function, size_t length, rx::ShaderType type,
                                              const std::vector<gl::LinkedVarying> &transformFeedbackVaryings,
                                              bool separatedOutputBuffers)
@@ -2584,6 +2429,11 @@ FenceImpl *Renderer11::createFence()
     return new Fence11(this);
 }
 
+TransformFeedbackImpl* Renderer11::createTransformFeedback()
+{
+    return new TransformFeedbackD3D();
+}
+
 bool Renderer11::supportsFastCopyBufferToTexture(GLenum internalFormat) const
 {
     ASSERT(getRendererExtensions().pixelBufferObject);
@@ -2733,7 +2583,7 @@ bool Renderer11::blitRect(gl::Framebuffer *readTarget, const gl::Rectangle &read
 }
 
 void Renderer11::readPixels(gl::Framebuffer *framebuffer, GLint x, GLint y, GLsizei width, GLsizei height, GLenum format,
-                            GLenum type, GLuint outputPitch, const gl::PixelPackState &pack, void* pixels)
+                            GLenum type, GLuint outputPitch, const gl::PixelPackState &pack, uint8_t *pixels)
 {
     ID3D11Texture2D *colorBufferTexture = NULL;
     unsigned int subresourceIndex = 0;
@@ -2820,7 +2670,7 @@ TextureImpl *Renderer11::createTexture(GLenum target)
 }
 
 void Renderer11::readTextureData(ID3D11Texture2D *texture, unsigned int subResource, const gl::Rectangle &area, GLenum format,
-                                 GLenum type, GLuint outputPitch, const gl::PixelPackState &pack, void *pixels)
+                                 GLenum type, GLuint outputPitch, const gl::PixelPackState &pack, uint8_t *pixels)
 {
     ASSERT(area.width >= 0);
     ASSERT(area.height >= 0);
@@ -2920,7 +2770,7 @@ void Renderer11::readTextureData(ID3D11Texture2D *texture, unsigned int subResou
     SafeRelease(stagingTex);
 }
 
-void Renderer11::packPixels(ID3D11Texture2D *readTexture, const PackPixelsParams &params, void *pixelsOut)
+void Renderer11::packPixels(ID3D11Texture2D *readTexture, const PackPixelsParams &params, uint8_t *pixelsOut)
 {
     D3D11_TEXTURE2D_DESC textureDesc;
     readTexture->GetDesc(&textureDesc);
@@ -2930,16 +2780,16 @@ void Renderer11::packPixels(ID3D11Texture2D *readTexture, const PackPixelsParams
     UNUSED_ASSERTION_VARIABLE(hr);
     ASSERT(SUCCEEDED(hr));
 
-    unsigned char *source;
+    uint8_t *source;
     int inputPitch;
     if (params.pack.reverseRowOrder)
     {
-        source = static_cast<unsigned char*>(mapping.pData) + mapping.RowPitch * (params.area.height - 1);
+        source = static_cast<uint8_t*>(mapping.pData) + mapping.RowPitch * (params.area.height - 1);
         inputPitch = -static_cast<int>(mapping.RowPitch);
     }
     else
     {
-        source = static_cast<unsigned char*>(mapping.pData);
+        source = static_cast<uint8_t*>(mapping.pData);
         inputPitch = static_cast<int>(mapping.RowPitch);
     }
 
@@ -2947,7 +2797,7 @@ void Renderer11::packPixels(ID3D11Texture2D *readTexture, const PackPixelsParams
     const gl::InternalFormat &sourceFormatInfo = gl::GetInternalFormatInfo(dxgiFormatInfo.internalFormat);
     if (sourceFormatInfo.format == params.format && sourceFormatInfo.type == params.type)
     {
-        unsigned char *dest = static_cast<unsigned char*>(pixelsOut) + params.offset;
+        uint8_t *dest = pixelsOut + params.offset;
         for (int y = 0; y < params.area.height; y++)
         {
             memcpy(dest + y * params.outputPitch, source + y * inputPitch, params.area.width * sourceFormatInfo.pixelBytes);
@@ -2968,8 +2818,8 @@ void Renderer11::packPixels(ID3D11Texture2D *readTexture, const PackPixelsParams
             {
                 for (int x = 0; x < params.area.width; x++)
                 {
-                    void *dest = static_cast<unsigned char*>(pixelsOut) + params.offset + y * params.outputPitch + x * destFormatInfo.pixelBytes;
-                    void *src = static_cast<unsigned char*>(source) + y * inputPitch + x * sourceFormatInfo.pixelBytes;
+                    uint8_t *dest = pixelsOut + params.offset + y * params.outputPitch + x * destFormatInfo.pixelBytes;
+                    const uint8_t *src = source + y * inputPitch + x * sourceFormatInfo.pixelBytes;
 
                     fastCopyFunc(src, dest);
                 }
@@ -2977,7 +2827,7 @@ void Renderer11::packPixels(ID3D11Texture2D *readTexture, const PackPixelsParams
         }
         else
         {
-            unsigned char temp[16]; // Maximum size of any Color<T> type used.
+            uint8_t temp[16]; // Maximum size of any Color<T> type used.
             META_ASSERT(sizeof(temp) >= sizeof(gl::ColorF)  &&
                         sizeof(temp) >= sizeof(gl::ColorUI) &&
                         sizeof(temp) >= sizeof(gl::ColorI));
@@ -2986,8 +2836,8 @@ void Renderer11::packPixels(ID3D11Texture2D *readTexture, const PackPixelsParams
             {
                 for (int x = 0; x < params.area.width; x++)
                 {
-                    void *dest = static_cast<unsigned char*>(pixelsOut) + params.offset + y * params.outputPitch + x * destFormatInfo.pixelBytes;
-                    void *src = static_cast<unsigned char*>(source) + y * inputPitch + x * sourceFormatInfo.pixelBytes;
+                    uint8_t *dest = pixelsOut + params.offset + y * params.outputPitch + x * destFormatInfo.pixelBytes;
+                    const uint8_t *src = source + y * inputPitch + x * sourceFormatInfo.pixelBytes;
 
                     // readFunc and writeFunc will be using the same type of color, CopyTexImage
                     // will not allow the copy otherwise.
