@@ -26,6 +26,7 @@ class Colorbuffer;
 class Depthbuffer;
 class Stencilbuffer;
 class DepthStencilbuffer;
+struct Caps;
 
 class Framebuffer
 {
@@ -66,6 +67,10 @@ class Framebuffer
 
     virtual GLenum completeness() const;
     bool hasValidDepthStencil() const;
+
+    void invalidate(const Caps &caps, GLsizei numAttachments, const GLenum *attachments);
+    void invalidateSub(const Caps &caps, GLsizei numAttachments, const GLenum *attachments,
+                       GLint x, GLint y, GLsizei width, GLsizei height);
 
   protected:
     rx::Renderer *mRenderer;

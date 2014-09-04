@@ -24,7 +24,6 @@
 #include "libGLESv2/Texture.h"
 #include "libGLESv2/ResourceManager.h"
 #include "libGLESv2/renderer/d3d/IndexDataManager.h"
-#include "libGLESv2/renderer/RenderTarget.h"
 #include "libGLESv2/renderer/Renderer.h"
 #include "libGLESv2/VertexArray.h"
 #include "libGLESv2/Sampler.h"
@@ -652,7 +651,7 @@ void Context::linkProgram(GLuint program)
 {
     Program *programObject = mResourceManager->getProgram(program);
 
-    bool linked = programObject->link();
+    bool linked = programObject->link(getCaps());
 
     // if the current program was relinked successfully we
     // need to install the new executables
@@ -1409,7 +1408,7 @@ size_t Context::getCurrentTexturesAndSamplerStates(ProgramBinary *programBinary,
     for (size_t i = 0; i < samplerRange; i++)
     {
         outTextureTypes[i] = programBinary->getSamplerTextureType(type, i);
-        GLint textureUnit = programBinary->getSamplerMapping(type, i);   // OpenGL texture image unit index
+        GLint textureUnit = programBinary->getSamplerMapping(type, i, getCaps());   // OpenGL texture image unit index
         if (textureUnit != -1)
         {
             outTextures[i] = getSamplerTexture(textureUnit, outTextureTypes[i]);
@@ -1508,7 +1507,7 @@ bool Context::applyUniformBuffers()
         }
     }
 
-    return programBinary->applyUniformBuffers(boundBuffers);
+    return programBinary->applyUniformBuffers(boundBuffers, getCaps());
 }
 
 bool Context::applyTransformFeedbackBuffers()
@@ -2277,79 +2276,6 @@ void Context::blitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1
         const gl::Rectangle *scissor = mState.isScissorTestEnabled() ? &mState.getScissor() : NULL;
         mRenderer->blitRect(readFramebuffer, srcRect, drawFramebuffer, dstRect, scissor,
                             blitRenderTarget, blitDepth, blitStencil, filter);
-    }
-}
-
-void Context::invalidateFrameBuffer(GLenum target, GLsizei numAttachments, const GLenum* attachments,
-                                    GLint x, GLint y, GLsizei width, GLsizei height)
-{
-    Framebuffer *frameBuffer = NULL;
-    switch (target)
-    {
-      case GL_FRAMEBUFFER:
-      case GL_DRAW_FRAMEBUFFER:
-        frameBuffer = mState.getDrawFramebuffer();
-        break;
-      case GL_READ_FRAMEBUFFER:
-        frameBuffer = mState.getReadFramebuffer();
-        break;
-      default:
-        UNREACHABLE();
-    }
-
-    if (frameBuffer && frameBuffer->completeness() == GL_FRAMEBUFFER_COMPLETE)
-    {
-        for (int i = 0; i < numAttachments; ++i)
-        {
-            rx::RenderTarget *renderTarget = NULL;
-
-            if (attachments[i] >= GL_COLOR_ATTACHMENT0 && attachments[i] <= GL_COLOR_ATTACHMENT15)
-            {
-                gl::FramebufferAttachment *attachment = frameBuffer->getColorbuffer(attachments[i] - GL_COLOR_ATTACHMENT0);
-                if (attachment)
-                {
-                    renderTarget = attachment->getRenderTarget();
-                }
-            }
-            else if (attachments[i] == GL_COLOR)
-            {
-                 gl::FramebufferAttachment *attachment = frameBuffer->getColorbuffer(0);
-                 if (attachment)
-                 {
-                     renderTarget = attachment->getRenderTarget();
-                 }
-            }
-            else
-            {
-                gl::FramebufferAttachment *attachment = NULL;
-                switch (attachments[i])
-                {
-                  case GL_DEPTH_ATTACHMENT:
-                  case GL_DEPTH:
-                    attachment = frameBuffer->getDepthbuffer();
-                    break;
-                  case GL_STENCIL_ATTACHMENT:
-                  case GL_STENCIL:
-                    attachment = frameBuffer->getStencilbuffer();
-                    break;
-                  case GL_DEPTH_STENCIL_ATTACHMENT:
-                    attachment = frameBuffer->getDepthOrStencilbuffer();
-                    break;
-                  default:
-                    UNREACHABLE();
-                }
-
-                if (attachment)
-                {
-                    renderTarget = attachment->getDepthStencil();
-                }
-            }
-
-            if (renderTarget)
-            {
-                renderTarget->invalidate(x, y, width, height);
-            }
-        }
     }
 }
 
