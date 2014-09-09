@@ -24,6 +24,11 @@
 #include <string>
 #include <vector>
 
+// TODO(jmadill): place this in workarounds library
+#define ANGLE_WORKAROUND_ENABLED 1
+#define ANGLE_WORKAROUND_DISABLED 2
+#define ANGLE_MRT_PERF_WORKAROUND ANGLE_WORKAROUND_ENABLED
+
 namespace sh
 {
 class HLSLBlockEncoder;
@@ -202,7 +207,7 @@ class ProgramBinary : public RefCountObject
     void reset();
 
     bool linkVaryings(InfoLog &infoLog, Shader *fragmentShader, Shader *vertexShader);
-    bool linkAttributes(InfoLog &infoLog, const AttributeBindings &attributeBindings, Shader *fragmentShader, Shader *vertexShader);
+    bool linkAttributes(InfoLog &infoLog, const AttributeBindings &attributeBindings, const Shader *vertexShader);
 
     bool linkValidateVariablesBase(InfoLog &infoLog,
                                    const std::string &variableName,
@@ -271,8 +276,7 @@ class ProgramBinary : public RefCountObject
         PixelExecutable(const std::vector<GLenum> &outputSignature, rx::ShaderExecutable *shaderExecutable);
         ~PixelExecutable();
 
-        // FIXME(geofflang): Work around NVIDIA driver bug by repacking buffers
-        bool matchesSignature(const std::vector<GLenum> &signature) const { return true; /* mOutputSignature == signature; */ }
+        bool matchesSignature(const std::vector<GLenum> &signature) const { return mOutputSignature == signature; }
 
         const std::vector<GLenum> &outputSignature() const { return mOutputSignature; }
         rx::ShaderExecutable *shaderExecutable() const { return mShaderExecutable; }
@@ -292,7 +296,7 @@ class ProgramBinary : public RefCountObject
     std::string mPixelHLSL;
     rx::D3DWorkaroundType mPixelWorkarounds;
     bool mUsesFragDepth;
-    std::vector<rx::PixelShaderOuputVariable> mPixelShaderKey;
+    std::vector<rx::PixelShaderOutputVariable> mPixelShaderKey;
     std::vector<PixelExecutable *> mPixelExecutables;
 
     rx::ShaderExecutable *mGeometryExecutable;

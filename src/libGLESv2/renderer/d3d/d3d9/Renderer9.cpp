@@ -1111,7 +1111,7 @@ gl::FramebufferAttachment *Renderer9::getNullColorbuffer(gl::FramebufferAttachme
     }
 
     gl::Renderbuffer *nullRenderbuffer = new gl::Renderbuffer(0, new gl::Colorbuffer(this, width, height, GL_NONE, 0));
-    gl::RenderbufferAttachment *nullbuffer = new gl::RenderbufferAttachment(nullRenderbuffer);
+    gl::RenderbufferAttachment *nullbuffer = new gl::RenderbufferAttachment(GL_NONE, nullRenderbuffer);
 
     // add nullbuffer to the cache
     NullColorbufferCacheEntry *oldest = &mNullColorbufferCache[0];
@@ -1713,13 +1713,13 @@ void Renderer9::applyUniformnbv(gl::LinkedUniform *targetUniform, const GLint *v
     applyUniformnfv(targetUniform, (GLfloat*)vector);
 }
 
-void Renderer9::clear(const gl::ClearParameters &clearParams, gl::Framebuffer *frameBuffer)
+gl::Error Renderer9::clear(const gl::ClearParameters &clearParams, gl::Framebuffer *frameBuffer)
 {
     if (clearParams.colorClearType != GL_FLOAT)
     {
         // Clearing buffers with non-float values is not supported by Renderer9 and ES 2.0
         UNREACHABLE();
-        return;
+        return gl::Error(GL_INVALID_OPERATION);
     }
 
     bool clearColor = clearParams.clearColor[0];
@@ -1729,7 +1729,7 @@ void Renderer9::clear(const gl::ClearParameters &clearParams, gl::Framebuffer *f
         {
             // Clearing individual buffers other than buffer zero is not supported by Renderer9 and ES 2.0
             UNREACHABLE();
-            return;
+            return gl::Error(GL_INVALID_OPERATION);
         }
     }
 
@@ -1926,6 +1926,8 @@ void Renderer9::clear(const gl::ClearParameters &clearParams, gl::Framebuffer *f
 
         mDevice->Clear(0, NULL, dxClearFlags, color, depth, stencil);
     }
+
+    return gl::Error(GL_NO_ERROR);
 }
 
 void Renderer9::markAllStateDirty()
@@ -2557,8 +2559,8 @@ bool Renderer9::blitRect(gl::Framebuffer *readFramebuffer, const gl::Rectangle &
     return true;
 }
 
-void Renderer9::readPixels(gl::Framebuffer *framebuffer, GLint x, GLint y, GLsizei width, GLsizei height, GLenum format,
-                           GLenum type, GLuint outputPitch, const gl::PixelPackState &pack, uint8_t *pixels)
+gl::Error Renderer9::readPixels(gl::Framebuffer *framebuffer, GLint x, GLint y, GLsizei width, GLsizei height, GLenum format,
+                                GLenum type, GLuint outputPitch, const gl::PixelPackState &pack, uint8_t *pixels)
 {
     ASSERT(pack.pixelBuffer.get() == NULL);
 
@@ -2579,7 +2581,7 @@ void Renderer9::readPixels(gl::Framebuffer *framebuffer, GLint x, GLint y, GLsiz
     if (!surface)
     {
         // context must be lost
-        return;
+        return gl::Error(GL_NO_ERROR);
     }
 
     D3DSURFACE_DESC desc;
@@ -2589,7 +2591,7 @@ void Renderer9::readPixels(gl::Framebuffer *framebuffer, GLint x, GLint y, GLsiz
     {
         UNIMPLEMENTED();   // FIXME: Requires resolve using StretchRect into non-multisampled render target
         SafeRelease(surface);
-        return gl::error(GL_OUT_OF_MEMORY);
+        return gl::Error(GL_OUT_OF_MEMORY, "ReadPixels is unimplemented for multisampled framebuffer attachments.");
     }
 
     HRESULT result;
@@ -2617,7 +2619,7 @@ void Renderer9::readPixels(gl::Framebuffer *framebuffer, GLint x, GLint y, GLsiz
         {
             ASSERT(result == D3DERR_OUTOFVIDEOMEMORY || result == E_OUTOFMEMORY);
             SafeRelease(surface);
-            return gl::error(GL_OUT_OF_MEMORY);
+            return gl::Error(GL_OUT_OF_MEMORY, "Failed to allocate internal texture for ReadPixels.");
         }
     }
 
@@ -2633,20 +2635,19 @@ void Renderer9::readPixels(gl::Framebuffer *framebuffer, GLint x, GLint y, GLsiz
         if (d3d9::isDeviceLostError(result))
         {
             notifyDeviceLost();
-            return gl::error(GL_OUT_OF_MEMORY);
         }
         else
         {
             UNREACHABLE();
-            return;
         }
 
+        return gl::Error(GL_OUT_OF_MEMORY, "Failed to read internal render target data.");
     }
 
     if (directToPixels)
     {
         SafeRelease(systemSurface);
-        return;
+        return gl::Error(GL_NO_ERROR);
     }
 
     RECT rect;
@@ -2663,7 +2664,7 @@ void Renderer9::readPixels(gl::Framebuffer *framebuffer, GLint x, GLint y, GLsiz
         UNREACHABLE();
         SafeRelease(systemSurface);
 
-        return;   // No sensible error to generate
+        return gl::Error(GL_OUT_OF_MEMORY, "Failed to lock internal render target.");
     }
 
     uint8_t *source;
@@ -2732,6 +2733,8 @@ void Renderer9::readPixels(gl::Framebuffer *framebuffer, GLint x, GLint y, GLsiz
 
     systemSurface->UnlockRect();
     SafeRelease(systemSurface);
+
+    return gl::Error(GL_NO_ERROR);
 }
 
 RenderTarget *Renderer9::createRenderTarget(SwapChain *swapChain, bool depth)
@@ -2760,16 +2763,7 @@ RenderTarget *Renderer9::createRenderTarget(int width, int height, GLenum format
 
 ShaderImpl *Renderer9::createShader(GLenum type)
 {
-    switch (type)
-    {
-      case GL_VERTEX_SHADER:
-        return new VertexShaderD3D(this);
-      case GL_FRAGMENT_SHADER:
-        return new FragmentShaderD3D(this);
-      default:
-        UNREACHABLE();
-        return NULL;
-    }
+    return new ShaderD3D(type, this);
 }
 
 void Renderer9::releaseShaderCompiler()

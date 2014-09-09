@@ -793,15 +793,15 @@ bool Renderer11::applyRenderTarget(gl::Framebuffer *framebuffer)
     ID3D11RenderTargetView* framebufferRTVs[gl::IMPLEMENTATION_MAX_DRAW_BUFFERS] = {NULL};
     bool missingColorRenderTarget = true;
 
-    for (unsigned int colorAttachment = 0; colorAttachment < gl::IMPLEMENTATION_MAX_DRAW_BUFFERS; colorAttachment++)
-    {
-        const GLenum drawBufferState = framebuffer->getDrawBufferState(colorAttachment);
-        gl::FramebufferAttachment *colorbuffer = framebuffer->getColorbuffer(colorAttachment);
+    const gl::ColorbufferInfo &colorbuffers = framebuffer->getColorbuffersForRender();
 
-        if (colorbuffer && drawBufferState != GL_NONE)
+    for (size_t colorAttachment = 0; colorAttachment < colorbuffers.size(); ++colorAttachment)
+    {
+        gl::FramebufferAttachment *colorbuffer = colorbuffers[colorAttachment];
+
+        if (colorbuffer)
         {
             // the draw buffer must be either "none", "back" for the default buffer or the same index as this color (in order)
-            ASSERT(drawBufferState == GL_BACK || drawBufferState == (GL_COLOR_ATTACHMENT0_EXT + colorAttachment));
 
             // check for zero-sized default framebuffer, which is a special case.
             // in this case we do not wish to modify any state and just silently return false.
@@ -975,7 +975,7 @@ void Renderer11::applyTransformFeedbackBuffers(gl::Buffer *transformFeedbackBuff
         if (transformFeedbackBuffers[i])
         {
             Buffer11 *storage = Buffer11::makeBuffer11(transformFeedbackBuffers[i]->getImplementation());
-            ID3D11Buffer *buffer = storage->getBuffer(BUFFER_USAGE_TRANSFORM_FEEDBACK);
+            ID3D11Buffer *buffer = storage->getBuffer(BUFFER_USAGE_VERTEX_OR_TRANSFORM_FEEDBACK);
 
             d3dBuffers[i] = buffer;
             d3dOffsets[i] = (mAppliedTFBuffers[i] != buffer) ? static_cast<UINT>(offsets[i]) : -1;
@@ -1521,10 +1521,17 @@ void Renderer11::applyUniforms(const gl::ProgramBinary &programBinary)
     }
 }
 
-void Renderer11::clear(const gl::ClearParameters &clearParams, gl::Framebuffer *frameBuffer)
+gl::Error Renderer11::clear(const gl::ClearParameters &clearParams, gl::Framebuffer *frameBuffer)
 {
-    mClear->clearFramebuffer(clearParams, frameBuffer);
+    gl::Error error = mClear->clearFramebuffer(clearParams, frameBuffer);
+    if (error.isError())
+    {
+        return error;
+    }
+
     invalidateFramebufferSwizzles(frameBuffer);
+
+    return gl::Error(GL_NO_ERROR);
 }
 
 void Renderer11::markAllStateDirty()
@@ -2207,16 +2214,7 @@ RenderTarget *Renderer11::createRenderTarget(int width, int height, GLenum forma
 
 ShaderImpl *Renderer11::createShader(GLenum type)
 {
-    switch (type)
-    {
-      case GL_VERTEX_SHADER:
-        return new VertexShaderD3D(this);
-      case GL_FRAGMENT_SHADER:
-        return new FragmentShaderD3D(this);
-      default:
-        UNREACHABLE();
-        return NULL;
-    }
+    return new ShaderD3D(type, this);
 }
 
 void Renderer11::releaseShaderCompiler()
@@ -2583,8 +2581,8 @@ bool Renderer11::blitRect(gl::Framebuffer *readTarget, const gl::Rectangle &read
     return true;
 }
 
-void Renderer11::readPixels(gl::Framebuffer *framebuffer, GLint x, GLint y, GLsizei width, GLsizei height, GLenum format,
-                            GLenum type, GLuint outputPitch, const gl::PixelPackState &pack, uint8_t *pixels)
+gl::Error Renderer11::readPixels(gl::Framebuffer *framebuffer, GLint x, GLint y, GLsizei width, GLsizei height, GLenum format,
+                                 GLenum type, GLuint outputPitch, const gl::PixelPackState &pack, uint8_t *pixels)
 {
     ID3D11Texture2D *colorBufferTexture = NULL;
     unsigned int subresourceIndex = 0;
@@ -2605,16 +2603,27 @@ void Renderer11::readPixels(gl::Framebuffer *framebuffer, GLint x, GLint y, GLsi
             rx::Buffer11 *packBufferStorage = Buffer11::makeBuffer11(packBuffer->getImplementation());
             PackPixelsParams packParams(area, format, type, outputPitch, pack, reinterpret_cast<ptrdiff_t>(pixels));
 
+            gl::Error error = packBufferStorage->packPixels(colorBufferTexture, subresourceIndex, packParams);
+            if (error.isError())
+            {
+                return error;
+            }
+
             packBuffer->getIndexRangeCache()->clear();
-            packBufferStorage->packPixels(colorBufferTexture, subresourceIndex, packParams);
         }
         else
         {
-            readTextureData(colorBufferTexture, subresourceIndex, area, format, type, outputPitch, pack, pixels);
+            gl::Error error = readTextureData(colorBufferTexture, subresourceIndex, area, format, type, outputPitch, pack, pixels);
+            if (error.isError())
+            {
+                return error;
+            }
         }
 
         SafeRelease(colorBufferTexture);
     }
+
+    return gl::Error(GL_NO_ERROR);
 }
 
 Image *Renderer11::createImage()
@@ -2670,8 +2679,8 @@ TextureImpl *Renderer11::createTexture(GLenum target)
     return NULL;
 }
 
-void Renderer11::readTextureData(ID3D11Texture2D *texture, unsigned int subResource, const gl::Rectangle &area, GLenum format,
-                                 GLenum type, GLuint outputPitch, const gl::PixelPackState &pack, uint8_t *pixels)
+gl::Error Renderer11::readTextureData(ID3D11Texture2D *texture, unsigned int subResource, const gl::Rectangle &area, GLenum format,
+                                      GLenum type, GLuint outputPitch, const gl::PixelPackState &pack, uint8_t *pixels)
 {
     ASSERT(area.width >= 0);
     ASSERT(area.height >= 0);
@@ -2696,7 +2705,7 @@ void Renderer11::readTextureData(ID3D11Texture2D *texture, unsigned int subResou
     if (safeArea.width == 0 || safeArea.height == 0)
     {
         // no work to do
-        return;
+        return gl::Error(GL_NO_ERROR);
     }
 
     D3D11_TEXTURE2D_DESC stagingDesc;
@@ -2716,8 +2725,7 @@ void Renderer11::readTextureData(ID3D11Texture2D *texture, unsigned int subResou
     HRESULT result = mDevice->CreateTexture2D(&stagingDesc, NULL, &stagingTex);
     if (FAILED(result))
     {
-        ERR("Failed to create staging texture for readPixels, HRESULT: 0x%X.", result);
-        return;
+        return gl::Error(GL_OUT_OF_MEMORY, "Failed to create internal staging texture for ReadPixels, HRESULT: 0x%X.", result);
     }
 
     ID3D11Texture2D* srcTex = NULL;
@@ -2739,9 +2747,8 @@ void Renderer11::readTextureData(ID3D11Texture2D *texture, unsigned int subResou
         result = mDevice->CreateTexture2D(&resolveDesc, NULL, &srcTex);
         if (FAILED(result))
         {
-            ERR("Failed to create resolve texture for readPixels, HRESULT: 0x%X.", result);
             SafeRelease(stagingTex);
-            return;
+            return gl::Error(GL_OUT_OF_MEMORY, "Failed to create internal resolve texture for ReadPixels, HRESULT: 0x%X.", result);
         }
 
         mDeviceContext->ResolveSubresource(srcTex, 0, texture, subResource, textureDesc.Format);
@@ -2769,6 +2776,8 @@ void Renderer11::readTextureData(ID3D11Texture2D *texture, unsigned int subResou
     packPixels(stagingTex, packParams, pixels);
 
     SafeRelease(stagingTex);
+
+    return gl::Error(GL_NO_ERROR);
 }
 
 void Renderer11::packPixels(ID3D11Texture2D *readTexture, const PackPixelsParams &params, uint8_t *pixelsOut)

@@ -10,6 +10,7 @@
 #include "libGLESv2/BinaryStream.h"
 #include "libGLESv2/ProgramBinary.h"
 #include "libGLESv2/Framebuffer.h"
+#include "libGLESv2/FramebufferAttachment.h"
 #include "libGLESv2/Renderbuffer.h"
 #include "libGLESv2/renderer/ShaderExecutable.h"
 
@@ -81,7 +82,7 @@ unsigned int ParseAndStripArrayIndex(std::string* name)
     return subscript;
 }
 
-void GetInputLayoutFromShader(const std::vector<sh::Attribute> &shaderAttributes, VertexFormat inputLayout[MAX_VERTEX_ATTRIBS])
+void GetDefaultInputLayoutFromShader(const std::vector<sh::Attribute> &shaderAttributes, VertexFormat inputLayout[MAX_VERTEX_ATTRIBS])
 {
     size_t layoutIndex = 0;
     for (size_t attributeIndex = 0; attributeIndex < shaderAttributes.size(); attributeIndex++)
@@ -105,6 +106,16 @@ void GetInputLayoutFromShader(const std::vector<sh::Attribute> &shaderAttributes
             }
         }
     }
+}
+
+std::vector<GLenum> GetDefaultOutputLayoutFromShader(const std::vector<rx::PixelShaderOutputVariable> &shaderOutputVars)
+{
+    std::vector<GLenum> defaultPixelOutput(1);
+
+    ASSERT(!shaderOutputVars.empty());
+    defaultPixelOutput[0] = GL_COLOR_ATTACHMENT0 + shaderOutputVars[0].outputIndex;
+
+    return defaultPixelOutput;
 }
 
 bool IsRowMajorLayout(const sh::InterfaceBlockField &var)
@@ -235,17 +246,21 @@ unsigned int ProgramBinary::issueSerial()
 
 rx::ShaderExecutable *ProgramBinary::getPixelExecutableForFramebuffer(const Framebuffer *fbo)
 {
-    std::vector<GLenum> outputs(IMPLEMENTATION_MAX_DRAW_BUFFERS);
-    for (size_t outputIndex = 0; outputIndex < IMPLEMENTATION_MAX_DRAW_BUFFERS; outputIndex++)
+    std::vector<GLenum> outputs;
+
+    const gl::ColorbufferInfo &colorbuffers = fbo->getColorbuffersForRender();
+
+    for (size_t colorAttachment = 0; colorAttachment < colorbuffers.size(); ++colorAttachment)
     {
-        if (fbo->getColorbuffer(outputIndex) != NULL)
+        const gl::FramebufferAttachment *colorbuffer = colorbuffers[colorAttachment];
+
+        if (colorbuffer)
         {
-            // Always output floats for now
-            outputs[outputIndex] = GL_FLOAT;
+            outputs.push_back(colorbuffer->getBinding() == GL_BACK ? GL_COLOR_ATTACHMENT0 : colorbuffer->getBinding());
         }
         else
         {
-            outputs[outputIndex] = GL_NONE;
+            outputs.push_back(GL_NONE);
         }
     }
 
@@ -1036,7 +1051,11 @@ bool ProgramBinary::applyUniformBuffers(const std::vector<gl::Buffer*> boundBuff
             return false;
         }
 
-        ASSERT(uniformBlock->isReferencedByVertexShader() || uniformBlock->isReferencedByFragmentShader());
+        // Unnecessary to apply an unreferenced standard or shared UBO
+        if (!uniformBlock->isReferencedByVertexShader() && !uniformBlock->isReferencedByFragmentShader())
+        {
+            continue;
+        }
 
         if (uniformBlock->isReferencedByVertexShader())
         {
@@ -1060,16 +1079,19 @@ bool ProgramBinary::applyUniformBuffers(const std::vector<gl::Buffer*> boundBuff
 
 bool ProgramBinary::linkVaryings(InfoLog &infoLog, Shader *fragmentShader, Shader *vertexShader)
 {
-    rx::VertexShaderD3D *vertexShaderD3D = rx::VertexShaderD3D::makeVertexShaderD3D(vertexShader->getImplementation());
-    rx::FragmentShaderD3D *fragmentShaderD3D = rx::FragmentShaderD3D::makeFragmentShaderD3D(fragmentShader->getImplementation());
-
-    std::vector<PackedVarying> &fragmentVaryings = fragmentShaderD3D->getVaryings();
-    std::vector<PackedVarying> &vertexVaryings = vertexShaderD3D->getVaryings();
+    std::vector<PackedVarying> &fragmentVaryings = fragmentShader->getVaryings();
+    std::vector<PackedVarying> &vertexVaryings = vertexShader->getVaryings();
 
     for (size_t fragVaryingIndex = 0; fragVaryingIndex < fragmentVaryings.size(); fragVaryingIndex++)
     {
         PackedVarying *input = &fragmentVaryings[fragVaryingIndex];
         bool matched = false;
+
+        // Built-in varyings obey special rules
+        if (input->isBuiltIn())
+        {
+            continue;
+        }
 
         for (size_t vertVaryingIndex = 0; vertVaryingIndex < vertexVaryings.size(); vertVaryingIndex++)
         {
@@ -1088,7 +1110,8 @@ bool ProgramBinary::linkVaryings(InfoLog &infoLog, Shader *fragmentShader, Shade
             }
         }
 
-        if (!matched)
+        // We permit unmatched, unreferenced varyings
+        if (!matched && input->staticUse)
         {
             infoLog.append("Fragment varying %s does not match any vertex varying", input->name.c_str());
             return false;
@@ -1514,7 +1537,7 @@ bool ProgramBinary::save(GLenum *binaryFormat, void *binary, GLsizei bufSize, GL
     stream.writeInt(mPixelShaderKey.size());
     for (size_t pixelShaderKeyIndex = 0; pixelShaderKeyIndex < mPixelShaderKey.size(); pixelShaderKeyIndex++)
     {
-        const rx::PixelShaderOuputVariable &variable = mPixelShaderKey[pixelShaderKeyIndex];
+        const rx::PixelShaderOutputVariable &variable = mPixelShaderKey[pixelShaderKeyIndex];
         stream.writeInt(variable.type);
         stream.writeString(variable.name);
         stream.writeString(variable.source);
@@ -1618,8 +1641,8 @@ bool ProgramBinary::link(InfoLog &infoLog, const AttributeBindings &attributeBin
 
     mTransformFeedbackBufferMode = transformFeedbackBufferMode;
 
-    rx::VertexShaderD3D *vertexShaderD3D = rx::VertexShaderD3D::makeVertexShaderD3D(vertexShader->getImplementation());
-    rx::FragmentShaderD3D *fragmentShaderD3D = rx::FragmentShaderD3D::makeFragmentShaderD3D(fragmentShader->getImplementation());
+    rx::ShaderD3D *vertexShaderD3D = rx::ShaderD3D::makeShaderD3D(vertexShader->getImplementation());
+    rx::ShaderD3D *fragmentShaderD3D = rx::ShaderD3D::makeShaderD3D(fragmentShader->getImplementation());
 
     mShaderVersion = vertexShaderD3D->getShaderVersion();
 
@@ -1654,7 +1677,7 @@ bool ProgramBinary::link(InfoLog &infoLog, const AttributeBindings &attributeBin
 
     bool success = true;
 
-    if (!linkAttributes(infoLog, attributeBindings, fragmentShader, vertexShader))
+    if (!linkAttributes(infoLog, attributeBindings, vertexShader))
     {
         success = false;
     }
@@ -1688,14 +1711,10 @@ bool ProgramBinary::link(InfoLog &infoLog, const AttributeBindings &attributeBin
     if (success)
     {
         VertexFormat defaultInputLayout[MAX_VERTEX_ATTRIBS];
-        GetInputLayoutFromShader(vertexShaderD3D->getActiveAttributes(), defaultInputLayout);
+        GetDefaultInputLayoutFromShader(vertexShader->getActiveAttributes(), defaultInputLayout);
         rx::ShaderExecutable *defaultVertexExecutable = getVertexExecutableForInputLayout(defaultInputLayout);
 
-        std::vector<GLenum> defaultPixelOutput(IMPLEMENTATION_MAX_DRAW_BUFFERS);
-        for (size_t i = 0; i < defaultPixelOutput.size(); i++)
-        {
-            defaultPixelOutput[i] = (i == 0) ? GL_FLOAT : GL_NONE;
-        }
+        std::vector<GLenum> defaultPixelOutput = GetDefaultOutputLayoutFromShader(mPixelShaderKey);
         rx::ShaderExecutable *defaultPixelExecutable = getPixelExecutableForOutputLayout(defaultPixelOutput);
 
         if (usesGeometryShader())
@@ -1719,17 +1738,20 @@ bool ProgramBinary::link(InfoLog &infoLog, const AttributeBindings &attributeBin
 }
 
 // Determines the mapping between GL attributes and Direct3D 9 vertex stream usage indices
-bool ProgramBinary::linkAttributes(InfoLog &infoLog, const AttributeBindings &attributeBindings, Shader *fragmentShader, Shader *vertexShader)
+bool ProgramBinary::linkAttributes(InfoLog &infoLog, const AttributeBindings &attributeBindings, const Shader *vertexShader)
 {
-    rx::VertexShaderD3D *vertexShaderD3D = rx::VertexShaderD3D::makeVertexShaderD3D(vertexShader->getImplementation());
+    const rx::ShaderD3D *vertexShaderD3D = rx::ShaderD3D::makeShaderD3D(vertexShader->getImplementation());
 
     unsigned int usedLocations = 0;
-    const std::vector<sh::Attribute> &activeAttributes = vertexShaderD3D->getActiveAttributes();
+    const std::vector<sh::Attribute> &shaderAttributes = vertexShader->getActiveAttributes();
 
     // Link attributes that have a binding location
-    for (unsigned int attributeIndex = 0; attributeIndex < activeAttributes.size(); attributeIndex++)
+    for (unsigned int attributeIndex = 0; attributeIndex < shaderAttributes.size(); attributeIndex++)
     {
-        const sh::Attribute &attribute = activeAttributes[attributeIndex];
+        const sh::Attribute &attribute = shaderAttributes[attributeIndex];
+
+        ASSERT(attribute.staticUse);
+
         const int location = attribute.location == -1 ? attributeBindings.getAttributeBinding(attribute.name) : attribute.location;
 
         mShaderAttributes[attributeIndex] = attribute;
@@ -1768,9 +1790,12 @@ bool ProgramBinary::linkAttributes(InfoLog &infoLog, const AttributeBindings &at
     }
 
     // Link attributes that don't have a binding location
-    for (unsigned int attributeIndex = 0; attributeIndex < activeAttributes.size(); attributeIndex++)
+    for (unsigned int attributeIndex = 0; attributeIndex < shaderAttributes.size(); attributeIndex++)
     {
-        const sh::Attribute &attribute = activeAttributes[attributeIndex];
+        const sh::Attribute &attribute = shaderAttributes[attributeIndex];
+
+        ASSERT(attribute.staticUse);
+
         const int location = attribute.location == -1 ? attributeBindings.getAttributeBinding(attribute.name) : attribute.location;
 
         if (location == -1)   // Not set by glBindAttribLocation or by location layout qualifier
@@ -1899,11 +1924,11 @@ bool ProgramBinary::linkValidateInterfaceBlockFields(InfoLog &infoLog, const std
 
 bool ProgramBinary::linkUniforms(InfoLog &infoLog, const Shader &vertexShader, const Shader &fragmentShader, const Caps &caps)
 {
-    const rx::VertexShaderD3D *vertexShaderD3D = rx::VertexShaderD3D::makeVertexShaderD3D(vertexShader.getImplementation());
-    const rx::FragmentShaderD3D *fragmentShaderD3D = rx::FragmentShaderD3D::makeFragmentShaderD3D(fragmentShader.getImplementation());
+    const rx::ShaderD3D *vertexShaderD3D = rx::ShaderD3D::makeShaderD3D(vertexShader.getImplementation());
+    const rx::ShaderD3D *fragmentShaderD3D = rx::ShaderD3D::makeShaderD3D(fragmentShader.getImplementation());
 
-    const std::vector<sh::Uniform> &vertexUniforms = vertexShaderD3D->getUniforms();
-    const std::vector<sh::Uniform> &fragmentUniforms = fragmentShaderD3D->getUniforms();
+    const std::vector<sh::Uniform> &vertexUniforms = vertexShader.getUniforms();
+    const std::vector<sh::Uniform> &fragmentUniforms = fragmentShader.getUniforms();
 
     // Check that uniforms defined in the vertex and fragment shaders are identical
     typedef std::map<std::string, const sh::Uniform*> UniformMap;
@@ -1933,13 +1958,21 @@ bool ProgramBinary::linkUniforms(InfoLog &infoLog, const Shader &vertexShader, c
     for (unsigned int uniformIndex = 0; uniformIndex < vertexUniforms.size(); uniformIndex++)
     {
         const sh::Uniform &uniform = vertexUniforms[uniformIndex];
-        defineUniformBase(GL_VERTEX_SHADER, uniform, vertexShaderD3D->getUniformRegister(uniform.name));
+
+        if (uniform.staticUse)
+        {
+            defineUniformBase(GL_VERTEX_SHADER, uniform, vertexShaderD3D->getUniformRegister(uniform.name));
+        }
     }
 
     for (unsigned int uniformIndex = 0; uniformIndex < fragmentUniforms.size(); uniformIndex++)
     {
         const sh::Uniform &uniform = fragmentUniforms[uniformIndex];
-        defineUniformBase(GL_FRAGMENT_SHADER, uniform, fragmentShaderD3D->getUniformRegister(uniform.name));
+
+        if (uniform.staticUse)
+        {
+            defineUniformBase(GL_FRAGMENT_SHADER, uniform, fragmentShaderD3D->getUniformRegister(uniform.name));
+        }
     }
 
     if (!indexUniforms(infoLog, caps))
@@ -2171,11 +2204,8 @@ bool ProgramBinary::areMatchingInterfaceBlocks(InfoLog &infoLog, const sh::Inter
 
 bool ProgramBinary::linkUniformBlocks(InfoLog &infoLog, const Shader &vertexShader, const Shader &fragmentShader, const Caps &caps)
 {
-    const rx::VertexShaderD3D *vertexShaderD3D = rx::VertexShaderD3D::makeVertexShaderD3D(vertexShader.getImplementation());
-    const rx::FragmentShaderD3D *fragmentShaderD3D = rx::FragmentShaderD3D::makeFragmentShaderD3D(fragmentShader.getImplementation());
-
-    const std::vector<sh::InterfaceBlock> &vertexInterfaceBlocks = vertexShaderD3D->getInterfaceBlocks();
-    const std::vector<sh::InterfaceBlock> &fragmentInterfaceBlocks = fragmentShaderD3D->getInterfaceBlocks();
+    const std::vector<sh::InterfaceBlock> &vertexInterfaceBlocks = vertexShader.getInterfaceBlocks();
+    const std::vector<sh::InterfaceBlock> &fragmentInterfaceBlocks = fragmentShader.getInterfaceBlocks();
 
     // Check that interface blocks defined in the vertex and fragment shaders are identical
     typedef std::map<std::string, const sh::InterfaceBlock*> UniformBlockMap;
@@ -2203,17 +2233,29 @@ bool ProgramBinary::linkUniformBlocks(InfoLog &infoLog, const Shader &vertexShad
 
     for (unsigned int blockIndex = 0; blockIndex < vertexInterfaceBlocks.size(); blockIndex++)
     {
-        if (!defineUniformBlock(infoLog, vertexShader, vertexInterfaceBlocks[blockIndex], caps))
+        const sh::InterfaceBlock &interfaceBlock = vertexInterfaceBlocks[blockIndex];
+
+        // Note: shared and std140 layouts are always considered active
+        if (interfaceBlock.staticUse || interfaceBlock.layout != sh::BLOCKLAYOUT_PACKED)
         {
-            return false;
+            if (!defineUniformBlock(infoLog, vertexShader, interfaceBlock, caps))
+            {
+                return false;
+            }
         }
     }
 
     for (unsigned int blockIndex = 0; blockIndex < fragmentInterfaceBlocks.size(); blockIndex++)
     {
-        if (!defineUniformBlock(infoLog, fragmentShader, fragmentInterfaceBlocks[blockIndex], caps))
+        const sh::InterfaceBlock &interfaceBlock = fragmentInterfaceBlocks[blockIndex];
+
+        // Note: shared and std140 layouts are always considered active
+        if (interfaceBlock.staticUse || interfaceBlock.layout != sh::BLOCKLAYOUT_PACKED)
         {
-            return false;
+            if (!defineUniformBlock(infoLog, fragmentShader, interfaceBlock, caps))
+            {
+                return false;
+            }
         }
     }
 
@@ -2362,23 +2404,26 @@ bool ProgramBinary::defineUniformBlock(InfoLog &infoLog, const Shader &shader, c
         }
     }
 
-    // Assign registers to the uniform blocks
-    const GLuint blockIndex = getUniformBlockIndex(interfaceBlock.name);
-    const unsigned int elementCount = std::max(1u, interfaceBlock.arraySize);
-    ASSERT(blockIndex != GL_INVALID_INDEX);
-    ASSERT(blockIndex + elementCount <= mUniformBlocks.size());
-
-    unsigned int interfaceBlockRegister = shaderD3D->getInterfaceBlockRegister(interfaceBlock.name);
-
-    for (unsigned int uniformBlockElement = 0; uniformBlockElement < elementCount; uniformBlockElement++)
+    if (interfaceBlock.staticUse)
     {
-        UniformBlock *uniformBlock = mUniformBlocks[blockIndex + uniformBlockElement];
-        ASSERT(uniformBlock->name == interfaceBlock.name);
+        // Assign registers to the uniform blocks
+        const GLuint blockIndex = getUniformBlockIndex(interfaceBlock.name);
+        const unsigned int elementCount = std::max(1u, interfaceBlock.arraySize);
+        ASSERT(blockIndex != GL_INVALID_INDEX);
+        ASSERT(blockIndex + elementCount <= mUniformBlocks.size());
 
-        if (!assignUniformBlockRegister(infoLog, uniformBlock, shader.getType(),
-                                        interfaceBlockRegister + uniformBlockElement, caps))
+        unsigned int interfaceBlockRegister = shaderD3D->getInterfaceBlockRegister(interfaceBlock.name);
+
+        for (unsigned int uniformBlockElement = 0; uniformBlockElement < elementCount; uniformBlockElement++)
         {
-            return false;
+            UniformBlock *uniformBlock = mUniformBlocks[blockIndex + uniformBlockElement];
+            ASSERT(uniformBlock->name == interfaceBlock.name);
+
+            if (!assignUniformBlockRegister(infoLog, uniformBlock, shader.getType(),
+                                            interfaceBlockRegister + uniformBlockElement, caps))
+            {
+                return false;
+            }
         }
     }
 

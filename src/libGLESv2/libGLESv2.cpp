@@ -542,7 +542,12 @@ void __stdcall glBufferData(GLenum target, GLsizeiptr size, const GLvoid* data, 
             return;
         }
 
-        buffer->bufferData(data, size, usage);
+        gl::Error error = buffer->bufferData(data, size, usage);
+        if (error.isError())
+        {
+            context->recordError(error);
+            return;
+        }
     }
 }
 
@@ -598,7 +603,12 @@ void __stdcall glBufferSubData(GLenum target, GLintptr offset, GLsizeiptr size, 
             return;
         }
 
-        buffer->bufferSubData(data, size, offset);
+        gl::Error error = buffer->bufferSubData(data, size, offset);
+        if (error.isError())
+        {
+            context->recordError(error);
+            return;
+        }
     }
 }
 
@@ -644,7 +654,12 @@ void __stdcall glClear(GLbitfield mask)
             return;
         }
 
-        context->clear(mask);
+        gl::Error error = context->clear(mask);
+        if (error.isError())
+        {
+            context->recordError(error);
+            return;
+        }
     }
 }
 
@@ -3678,7 +3693,12 @@ void __stdcall glReadnPixelsEXT(GLint x, GLint y, GLsizei width, GLsizei height,
             return;
         }
 
-        context->readPixels(x, y, width, height, format, type, &bufSize, data);
+        gl::Error error = context->readPixels(x, y, width, height, format, type, &bufSize, data);
+        if (error.isError())
+        {
+            context->recordError(error);
+            return;
+        }
     }
 }
 
@@ -3704,7 +3724,12 @@ void __stdcall glReadPixels(GLint x, GLint y, GLsizei width, GLsizei height,
             return;
         }
 
-        context->readPixels(x, y, width, height, format, type, NULL, pixels);
+        gl::Error error = context->readPixels(x, y, width, height, format, type, NULL, pixels);
+        if (error.isError())
+        {
+            context->recordError(error);
+            return;
+        }
     }
 }
 
@@ -6588,7 +6613,12 @@ void __stdcall glClearBufferiv(GLenum buffer, GLint drawbuffer, const GLint* val
             return;
         }
 
-        context->clearBufferiv(buffer, drawbuffer, value);
+        gl::Error error = context->clearBufferiv(buffer, drawbuffer, value);
+        if (error.isError())
+        {
+            context->recordError(error);
+            return;
+        }
     }
 }
 
@@ -6620,7 +6650,12 @@ void __stdcall glClearBufferuiv(GLenum buffer, GLint drawbuffer, const GLuint* v
             return;
         }
 
-        context->clearBufferuiv(buffer, drawbuffer, value);
+        gl::Error error = context->clearBufferuiv(buffer, drawbuffer, value);
+        if (error.isError())
+        {
+            context->recordError(error);
+            return;
+        }
     }
 }
 
@@ -6660,7 +6695,12 @@ void __stdcall glClearBufferfv(GLenum buffer, GLint drawbuffer, const GLfloat* v
             return;
         }
 
-        context->clearBufferfv(buffer, drawbuffer, value);
+        gl::Error error = context->clearBufferfv(buffer, drawbuffer, value);
+        if (error.isError())
+        {
+            context->recordError(error);
+            return;
+        }
     }
 }
 
@@ -6692,7 +6732,12 @@ void __stdcall glClearBufferfi(GLenum buffer, GLint drawbuffer, GLfloat depth, G
             return;
         }
 
-        context->clearBufferfi(buffer, drawbuffer, depth, stencil);
+        gl::Error error = context->clearBufferfi(buffer, drawbuffer, depth, stencil);
+        if (error.isError())
+        {
+            context->recordError(error);
+            return;
+        }
     }
 }
 
@@ -6780,7 +6825,12 @@ void __stdcall glCopyBufferSubData(GLenum readTarget, GLenum writeTarget, GLintp
         // if size is zero, the copy is a successful no-op
         if (size > 0)
         {
-            writeBuffer->copyBufferSubData(readBuffer, readOffset, writeOffset, size);
+            gl::Error error = writeBuffer->copyBufferSubData(readBuffer, readOffset, writeOffset, size);
+            if (error.isError())
+            {
+                context->recordError(error);
+                return;
+            }
         }
     }
 }
@@ -8379,7 +8429,14 @@ void * __stdcall glMapBufferOES(GLenum target, GLenum access)
             return NULL;
         }
 
-        return buffer->mapRange(0, buffer->getSize(), GL_MAP_WRITE_BIT);
+        gl::Error error = buffer->mapRange(0, buffer->getSize(), GL_MAP_WRITE_BIT);
+        if (error.isError())
+        {
+            context->recordError(error);
+            return NULL;
+        }
+
+        return buffer->getMapPointer();
     }
 
     return NULL;
@@ -8408,7 +8465,12 @@ GLboolean __stdcall glUnmapBufferOES(GLenum target)
 
         // TODO: detect if we had corruption. if so, throw an error and return false.
 
-        buffer->unmap();
+        gl::Error error = buffer->unmap();
+        if (error.isError())
+        {
+            context->recordError(error);
+            return GL_FALSE;
+        }
 
         return GL_TRUE;
     }
@@ -8498,7 +8560,14 @@ void* __stdcall glMapBufferRangeEXT (GLenum target, GLintptr offset, GLsizeiptr 
             return NULL;
         }
 
-        return buffer->mapRange(offset, length, access);
+        gl::Error error = buffer->mapRange(offset, length, access);
+        if (error.isError())
+        {
+            context->recordError(error);
+            return NULL;
+        }
+
+        return buffer->getMapPointer();
     }
 
     return NULL;

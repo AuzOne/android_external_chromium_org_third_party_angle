@@ -38,6 +38,7 @@ namespace gl
 {
 class Framebuffer;
 class FramebufferAttachment;
+struct ImageIndex;
 
 bool IsMipmapFiltered(const gl::SamplerState &samplerState);
 
@@ -61,6 +62,11 @@ class Texture : public RefCountObject
     GLint getBaseLevelHeight() const;
     GLint getBaseLevelDepth() const;
     GLenum getBaseLevelInternalFormat() const;
+
+    GLsizei getWidth(const ImageIndex &index) const;
+    GLsizei getHeight(const ImageIndex &index) const;
+    GLenum getInternalFormat(const ImageIndex &index) const;
+    GLenum getActualFormat(const ImageIndex &index) const;
 
     virtual bool isSamplerComplete(const SamplerState &samplerState, const TextureCapsMap &textureCaps, const Extensions &extensions, int clientVersion) const = 0;
 
@@ -93,6 +99,11 @@ class Texture : public RefCountObject
 
     const rx::Image *getBaseLevelImage() const;
 
+    // TODO: move these to TextureD3D
+    friend class TextureAttachment;
+    rx::RenderTarget *getRenderTarget(const ImageIndex &index);
+    unsigned int getRenderTargetSerial(const ImageIndex &index);
+
   private:
     DISALLOW_COPY_AND_ASSIGN(Texture);
 };
@@ -123,12 +134,6 @@ class Texture2D : public Texture
     virtual void releaseTexImage();
 
     virtual void generateMipmaps();
-
-    unsigned int getRenderTargetSerial(GLint level);
-
-  protected:
-    friend class Texture2DAttachment;
-    rx::RenderTarget *getRenderTarget(GLint level);
 
   private:
     DISALLOW_COPY_AND_ASSIGN(Texture2D);
@@ -171,14 +176,8 @@ class TextureCubeMap : public Texture
 
     bool isCubeComplete() const;
 
-    unsigned int getRenderTargetSerial(GLenum target, GLint level);
-
     static int targetToLayerIndex(GLenum target);
     static GLenum layerIndexToTarget(GLint layer);
-
-  protected:
-    friend class TextureCubeMapAttachment;
-    rx::RenderTarget *getRenderTarget(GLenum target, GLint level);
 
   private:
     DISALLOW_COPY_AND_ASSIGN(TextureCubeMap);
@@ -210,12 +209,6 @@ class Texture3D : public Texture
 
     virtual bool isSamplerComplete(const SamplerState &samplerState, const TextureCapsMap &textureCaps, const Extensions &extensions, int clientVersion) const;
 
-    unsigned int getRenderTargetSerial(GLint level, GLint layer);
-
-  protected:
-    friend class Texture3DAttachment;
-    rx::RenderTarget *getRenderTarget(GLint level, GLint layer);
-
   private:
     DISALLOW_COPY_AND_ASSIGN(Texture3D);
 
@@ -246,17 +239,59 @@ class Texture2DArray : public Texture
 
     virtual bool isSamplerComplete(const SamplerState &samplerState, const TextureCapsMap &textureCaps, const Extensions &extensions, int clientVersion) const;
 
-    unsigned int getRenderTargetSerial(GLint level, GLint layer);
-
-  protected:
-    friend class Texture2DArrayAttachment;
-    rx::RenderTarget *getRenderTarget(GLint level, GLint layer);
-
   private:
     DISALLOW_COPY_AND_ASSIGN(Texture2DArray);
 
     bool isMipmapComplete() const;
     bool isLevelComplete(int level) const;
+};
+
+struct ImageIndex
+{
+    GLenum type;
+    GLint mipIndex;
+    GLint layerIndex;
+
+    ImageIndex(const ImageIndex &other)
+        : type(other.type),
+          mipIndex(other.mipIndex),
+          layerIndex(other.layerIndex)
+    {}
+
+    ImageIndex &operator=(const ImageIndex &other)
+    {
+        type = other.type;
+        mipIndex = other.mipIndex;
+        layerIndex = other.layerIndex;
+        return *this;
+    }
+
+    static ImageIndex Make2D(GLint mipIndex)
+    {
+        return ImageIndex(GL_TEXTURE_2D, mipIndex, 0);
+    }
+
+    static ImageIndex MakeCube(GLenum target, GLint mipIndex)
+    {
+        return ImageIndex(target, mipIndex, TextureCubeMap::targetToLayerIndex(target));
+    }
+
+    static ImageIndex Make2DArray(GLint mipIndex, GLint layerIndex)
+    {
+        return ImageIndex(GL_TEXTURE_2D_ARRAY, mipIndex, layerIndex);
+    }
+
+    static ImageIndex Make3D(GLint mipIndex, GLint layerIndex = 0)
+    {
+        return ImageIndex(GL_TEXTURE_3D, mipIndex, layerIndex);
+    }
+
+  private:
+      ImageIndex(GLenum typeIn, GLint mipIndexIn, GLint layerIndexIn)
+        : type(typeIn),
+          mipIndex(mipIndexIn),
+          layerIndex(layerIndexIn)
+    {}
 };
 
 }
