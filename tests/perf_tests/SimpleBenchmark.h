@@ -47,6 +47,7 @@ class SimpleBenchmark
   protected:
     unsigned int mDrawIterations;
     double mRunTimeSeconds;
+    int mNumFrames;
 
   private:
     DISALLOW_COPY_AND_ASSIGN(SimpleBenchmark);
@@ -57,7 +58,6 @@ class SimpleBenchmark
     void step(float dt, double totalTime);
     void draw();
 
-    int mNumFrames;
     std::string mName;
     bool mRunning;
 
@@ -69,7 +69,17 @@ class SimpleBenchmark
 // Base class
 struct BenchmarkParams
 {
-    virtual std::string name() const = 0;
+    EGLint requestedRenderer;
+
+    virtual std::string name() const
+    {
+        switch (requestedRenderer)
+        {
+          case EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE: return "D3D11";
+          case EGL_PLATFORM_ANGLE_TYPE_D3D9_ANGLE: return "D3D9";
+          default: return "Unknown Renderer";
+        }
+    }
 };
 
 template <typename BenchmarkT, typename ParamsT>

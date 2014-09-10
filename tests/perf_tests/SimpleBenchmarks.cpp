@@ -6,6 +6,7 @@
 
 #include "SimpleBenchmark.h"
 #include "BufferSubData.h"
+#include "TexSubImage.h"
 
 EGLint platforms[] =
 {
@@ -14,15 +15,16 @@ EGLint platforms[] =
 };
 
 GLenum vertexTypes[] = { GL_FLOAT };
-GLint componentCounts[] = { 2, 3, 4 };
+GLint componentCounts[] = { 4 };
 GLboolean vertexNorms[] = { GL_FALSE };
-GLsizeiptr updateSizes[] = { 300 };
+GLsizeiptr updateSizes[] = { 0, 300 };
 GLsizeiptr bufferSizes[] = { 1024 * 1024 };
 unsigned int iterationCounts[] = { 10 };
+unsigned int updatesEveryNFrames[] = { 1, 4 };
 
 int main(int argc, char **argv)
 {
-    std::vector<BufferSubDataParams> benchmarks;
+    std::vector<BufferSubDataParams> subDataParams;
 
     for (size_t platIt = 0; platIt < ArraySize(platforms); platIt++)
     {
@@ -44,16 +46,32 @@ int main(int argc, char **argv)
                         {
                             for (size_t itIt = 0; itIt < ArraySize(iterationCounts); itIt++)
                             {
-                                BufferSubDataParams params;
-                                params.requestedRenderer = platforms[platIt];
-                                params.vertexType = vertexTypes[typeIt];
-                                params.vertexComponentCount = componentCounts[compIt];
-                                params.vertexNormalized = vertexNorms[normIt];
-                                params.updateSize = updateSizes[updateIt];
-                                params.bufferSize = bufferSizes[bufszIt];
-                                params.iterations = iterationCounts[itIt];
+                                for (size_t nfrIt = 0; nfrIt < ArraySize(updatesEveryNFrames); nfrIt++)
+                                {
+                                    BufferSubDataParams params;
+                                    params.requestedRenderer = platforms[platIt];
+                                    params.vertexType = vertexTypes[typeIt];
+                                    params.vertexComponentCount = componentCounts[compIt];
+                                    params.vertexNormalized = vertexNorms[normIt];
+                                    params.updateSize = updateSizes[updateIt];
+                                    params.bufferSize = bufferSizes[bufszIt];
+                                    params.iterations = iterationCounts[itIt];
+                                    params.updatesEveryNFrames = updatesEveryNFrames[nfrIt];
 
-                                benchmarks.push_back(params);
+                                    if (updateSizes[updateIt] == 0)
+                                    {
+                                        if (nfrIt > 0)
+                                        {
+                                            continue;
+                                        }
+                                        else
+                                        {
+                                            params.updatesEveryNFrames = 1;
+                                        }
+                                    }
+
+                                    subDataParams.push_back(params);
+                                }
                             }
                         }
                     }
@@ -63,5 +81,23 @@ int main(int argc, char **argv)
     }
 
     // Enumerates permutations
-    RunBenchmarks<BufferSubDataBenchmark>(benchmarks);
+    RunBenchmarks<BufferSubDataBenchmark>(subDataParams);
+
+    std::vector<TexSubImageParams> subImageParams;
+
+    for (size_t platIt = 0; platIt < ArraySize(platforms); platIt++)
+    {
+        TexSubImageParams params;
+
+        params.requestedRenderer = platforms[platIt];
+        params.imageWidth = 1024;
+        params.imageHeight = 1024;
+        params.subImageHeight = 64;
+        params.subImageWidth = 64;
+        params.iterations = 10;
+
+        subImageParams.push_back(params);
+    }
+
+    RunBenchmarks<TexSubImageBenchmark>(subImageParams);
 }
