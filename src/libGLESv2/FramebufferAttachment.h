@@ -56,22 +56,19 @@ class FramebufferAttachment
     GLenum getBinding() const { return mBinding; }
 
     // Child class interface
-    virtual rx::RenderTarget *getRenderTarget() = 0;
-    virtual rx::TextureStorage *getTextureStorage() = 0;
-
     virtual GLsizei getWidth() const = 0;
     virtual GLsizei getHeight() const = 0;
     virtual GLenum getInternalFormat() const = 0;
     virtual GLenum getActualFormat() const = 0;
     virtual GLsizei getSamples() const = 0;
 
-    virtual unsigned int getSerial() const = 0;
-
     virtual GLuint id() const = 0;
     virtual GLenum type() const = 0;
     virtual GLint mipLevel() const = 0;
     virtual GLint layer() const = 0;
-    virtual unsigned int getTextureSerial() const = 0;
+
+    virtual Texture *getTexture() = 0;
+    virtual Renderbuffer *getRenderbuffer() = 0;
 
   private:
     DISALLOW_COPY_AND_ASSIGN(FramebufferAttachment);
@@ -85,10 +82,8 @@ class TextureAttachment : public FramebufferAttachment
     TextureAttachment(GLenum binding, Texture *texture, const ImageIndex &index);
     virtual ~TextureAttachment();
 
-    rx::TextureStorage *getTextureStorage();
     virtual GLsizei getSamples() const;
     virtual GLuint id() const;
-    virtual unsigned int getTextureSerial() const;
 
     virtual GLsizei getWidth() const;
     virtual GLsizei getHeight() const;
@@ -99,8 +94,8 @@ class TextureAttachment : public FramebufferAttachment
     virtual GLint mipLevel() const;
     virtual GLint layer() const;
 
-    virtual rx::RenderTarget *getRenderTarget();
-    virtual unsigned int getSerial() const;
+    virtual Texture *getTexture();
+    virtual Renderbuffer *getRenderbuffer();
 
   private:
     DISALLOW_COPY_AND_ASSIGN(TextureAttachment);
@@ -116,22 +111,19 @@ class RenderbufferAttachment : public FramebufferAttachment
 
     virtual ~RenderbufferAttachment();
 
-    rx::RenderTarget *getRenderTarget();
-    rx::TextureStorage *getTextureStorage();
-
     virtual GLsizei getWidth() const;
     virtual GLsizei getHeight() const;
     virtual GLenum getInternalFormat() const;
     virtual GLenum getActualFormat() const;
     virtual GLsizei getSamples() const;
 
-    virtual unsigned int getSerial() const;
-
     virtual GLuint id() const;
     virtual GLenum type() const;
     virtual GLint mipLevel() const;
     virtual GLint layer() const;
-    virtual unsigned int getTextureSerial() const;
+
+    virtual Texture *getTexture();
+    virtual Renderbuffer *getRenderbuffer();
 
   private:
     DISALLOW_COPY_AND_ASSIGN(RenderbufferAttachment);

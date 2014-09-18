@@ -90,11 +90,6 @@ TextureAttachment::~TextureAttachment()
     mTexture.set(NULL);
 }
 
-rx::TextureStorage *TextureAttachment::getTextureStorage()
-{
-    return mTexture->getNativeTexture()->getStorageInstance();
-}
-
 GLsizei TextureAttachment::getSamples() const
 {
     return 0;
@@ -103,11 +98,6 @@ GLsizei TextureAttachment::getSamples() const
 GLuint TextureAttachment::id() const
 {
     return mTexture->id();
-}
-
-unsigned int TextureAttachment::getTextureSerial() const
-{
-    return mTexture->getTextureSerial();
 }
 
 GLsizei TextureAttachment::getWidth() const
@@ -145,14 +135,15 @@ GLint TextureAttachment::layer() const
     return mIndex.layerIndex;
 }
 
-rx::RenderTarget *TextureAttachment::getRenderTarget()
+Texture *TextureAttachment::getTexture()
 {
-    return mTexture->getRenderTarget(mIndex);
+    return mTexture.get();
 }
 
-unsigned int TextureAttachment::getSerial() const
+Renderbuffer *TextureAttachment::getRenderbuffer()
 {
-    return mTexture->getRenderTargetSerial(mIndex);
+    UNREACHABLE();
+    return NULL;
 }
 
 ////// RenderbufferAttachment Implementation //////
@@ -167,17 +158,6 @@ RenderbufferAttachment::RenderbufferAttachment(GLenum binding, Renderbuffer *ren
 RenderbufferAttachment::~RenderbufferAttachment()
 {
     mRenderbuffer.set(NULL);
-}
-
-rx::RenderTarget *RenderbufferAttachment::getRenderTarget()
-{
-    return mRenderbuffer->getStorage()->getRenderTarget();
-}
-
-rx::TextureStorage *RenderbufferAttachment::getTextureStorage()
-{
-    UNREACHABLE();
-    return NULL;
 }
 
 GLsizei RenderbufferAttachment::getWidth() const
@@ -205,11 +185,6 @@ GLsizei RenderbufferAttachment::getSamples() const
     return mRenderbuffer->getStorage()->getSamples();
 }
 
-unsigned int RenderbufferAttachment::getSerial() const
-{
-    return mRenderbuffer->getStorage()->getSerial();
-}
-
 GLuint RenderbufferAttachment::id() const
 {
     return mRenderbuffer->id();
@@ -230,10 +205,15 @@ GLint RenderbufferAttachment::layer() const
     return 0;
 }
 
-unsigned int RenderbufferAttachment::getTextureSerial() const
+Texture *RenderbufferAttachment::getTexture()
 {
     UNREACHABLE();
-    return 0;
+    return NULL;
+}
+
+Renderbuffer *RenderbufferAttachment::getRenderbuffer()
+{
+    return mRenderbuffer.get();
 }
 
 }

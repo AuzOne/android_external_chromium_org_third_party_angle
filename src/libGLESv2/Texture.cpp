@@ -12,9 +12,9 @@
 #include "libGLESv2/main.h"
 #include "libGLESv2/Context.h"
 #include "libGLESv2/formatutils.h"
+#include "libGLESv2/ImageIndex.h"
 #include "libGLESv2/Renderbuffer.h"
 #include "libGLESv2/renderer/Image.h"
-#include "libGLESv2/renderer/RenderTarget.h"
 #include "libGLESv2/renderer/d3d/TextureStorage.h"
 
 #include "libEGL/Surface.h"
@@ -116,25 +116,25 @@ GLenum Texture::getBaseLevelInternalFormat() const
 
 GLsizei Texture::getWidth(const ImageIndex &index) const
 {
-    rx::Image *image = mTexture->getImage(index.mipIndex, index.layerIndex);
+    rx::Image *image = mTexture->getImage(index);
     return image->getWidth();
 }
 
 GLsizei Texture::getHeight(const ImageIndex &index) const
 {
-    rx::Image *image = mTexture->getImage(index.mipIndex, index.layerIndex);
+    rx::Image *image = mTexture->getImage(index);
     return image->getHeight();
 }
 
 GLenum Texture::getInternalFormat(const ImageIndex &index) const
 {
-    rx::Image *image = mTexture->getImage(index.mipIndex, index.layerIndex);
+    rx::Image *image = mTexture->getImage(index);
     return image->getInternalFormat();
 }
 
 GLenum Texture::getActualFormat(const ImageIndex &index) const
 {
-    rx::Image *image = mTexture->getImage(index.mipIndex, index.layerIndex);
+    rx::Image *image = mTexture->getImage(index);
     return image->getActualFormat();
 }
 
@@ -177,16 +177,6 @@ int Texture::mipLevels() const
 const rx::Image *Texture::getBaseLevelImage() const
 {
     return (getImplementation()->getLayerCount(0) > 0 ? getImplementation()->getImage(0, 0) : NULL);
-}
-
-rx::RenderTarget *Texture::getRenderTarget(const ImageIndex &index)
-{
-    return mTexture->getRenderTarget(index.mipIndex, index.layerIndex);
-}
-
-unsigned int Texture::getRenderTargetSerial(const ImageIndex &index)
-{
-    return mTexture->getRenderTargetSerial(index.mipIndex, index.layerIndex);
 }
 
 Texture2D::Texture2D(rx::TextureImpl *impl, GLuint id)

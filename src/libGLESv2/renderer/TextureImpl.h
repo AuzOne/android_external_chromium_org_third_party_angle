@@ -13,6 +13,8 @@
 
 #include "angle_gl.h"
 
+#include "libGLESv2/ImageIndex.h"
+
 namespace egl
 {
 class Surface;
@@ -29,7 +31,6 @@ namespace rx
 {
 
 class Image;
-class RenderTarget;
 class Renderer;
 class TextureStorageInterface;
 
@@ -43,7 +44,9 @@ class TextureImpl
     // higher level code should not rely on it.
     virtual TextureStorageInterface *getNativeTexture() = 0;
 
+    // Deprecated in favour of the ImageIndex method
     virtual Image *getImage(int level, int layer) const = 0;
+    virtual Image *getImage(const gl::ImageIndex &index) const = 0;
     virtual GLsizei getLayerCount(int level) const = 0;
 
     virtual void setUsage(GLenum usage) = 0;
@@ -57,9 +60,6 @@ class TextureImpl
     virtual void storage(GLenum target, GLsizei levels, GLenum internalformat, GLsizei width, GLsizei height, GLsizei depth) = 0;
 
     virtual void generateMipmaps() = 0;
-
-    virtual unsigned int getRenderTargetSerial(GLint level, GLint layer) = 0;
-    virtual RenderTarget *getRenderTarget(GLint level, GLint layer) = 0;
 
     virtual void bindTexImage(egl::Surface *surface) = 0;
     virtual void releaseTexImage() = 0;

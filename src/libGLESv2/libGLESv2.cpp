@@ -110,7 +110,12 @@ void __stdcall glBeginQueryEXT(GLenum target, GLuint id)
             return;
         }
 
-        context->beginQuery(target, id);
+        gl::Error error = context->beginQuery(target, id);
+        if (error.isError())
+        {
+            context->recordError(error);
+            return;
+        }
     }
 }
 
@@ -1360,7 +1365,7 @@ void __stdcall glDrawArraysInstancedANGLE(GLenum mode, GLint first, GLsizei coun
     gl::Context *context = gl::getNonLostContext();
     if (context)
     {
-        if (!ValidateDrawArraysInstanced(context, mode, first, count, primcount))
+        if (!ValidateDrawArraysInstancedANGLE(context, mode, first, count, primcount))
         {
             return;
         }
@@ -1396,7 +1401,7 @@ void __stdcall glDrawElementsInstancedANGLE(GLenum mode, GLsizei count, GLenum t
     if (context)
     {
         rx::RangeUI indexRange;
-        if (!ValidateDrawElementsInstanced(context, mode, count, type, indices, primcount, &indexRange))
+        if (!ValidateDrawElementsInstancedANGLE(context, mode, count, type, indices, primcount, &indexRange))
         {
             return;
         }
@@ -1451,7 +1456,12 @@ void __stdcall glEndQueryEXT(GLenum target)
             return;
         }
 
-        context->endQuery(target);
+        gl::Error error = context->endQuery(target);
+        if (error.isError())
+        {
+            context->recordError(error);
+            return;
+        }
     }
 }
 
@@ -2375,7 +2385,7 @@ void __stdcall glGetFramebufferAttachmentParameteriv(GLenum target, GLenum attac
                 break;
 
               case GL_FRAMEBUFFER_ATTACHMENT_COMPONENT_TYPE:
-                if (attachment == GL_DEPTH_STENCIL)
+                if (attachment == GL_DEPTH_STENCIL_ATTACHMENT)
                 {
                     context->recordError(gl::Error(GL_INVALID_OPERATION));
                     return;
@@ -2604,11 +2614,27 @@ void __stdcall glGetQueryObjectuivEXT(GLuint id, GLenum pname, GLuint *params)
         switch(pname)
         {
           case GL_QUERY_RESULT_EXT:
-            params[0] = queryObject->getResult();
+            {
+                gl::Error error = queryObject->getResult(params);
+                if (error.isError())
+                {
+                    context->recordError(error);
+                    return;
+                }
+            }
             break;
+
           case GL_QUERY_RESULT_AVAILABLE_EXT:
-            params[0] = queryObject->isResultAvailable();
+            {
+                gl::Error error = queryObject->isResultAvailable(params);
+                if (error.isError())
+                {
+                    context->recordError(error);
+                    return;
+                }
+            }
             break;
+
           default:
             context->recordError(gl::Error(GL_INVALID_ENUM));
             return;
@@ -5301,7 +5327,13 @@ void __stdcall glBeginQuery(GLenum target, GLuint id)
         {
             return;
         }
-        context->beginQuery(target, id);
+
+        gl::Error error = context->beginQuery(target, id);
+        if (error.isError())
+        {
+            context->recordError(error);
+            return;
+        }
     }
 }
 
@@ -5323,7 +5355,12 @@ void __stdcall glEndQuery(GLenum target)
             return;
         }
 
-        context->endQuery(target);
+        gl::Error error = context->endQuery(target);
+        if (error.isError())
+        {
+            context->recordError(error);
+            return;
+        }
     }
 }
 
@@ -5388,12 +5425,26 @@ void __stdcall glGetQueryObjectuiv(GLuint id, GLenum pname, GLuint* params)
 
         switch(pname)
         {
-          case GL_QUERY_RESULT:
-            params[0] = queryObject->getResult();
+          case GL_QUERY_RESULT_EXT:
+            {
+                gl::Error error = queryObject->getResult(params);
+                if (error.isError())
+                {
+                    context->recordError(error);
+                    return;
+                }
+            }
             break;
 
-          case GL_QUERY_RESULT_AVAILABLE:
-            params[0] = queryObject->isResultAvailable();
+          case GL_QUERY_RESULT_AVAILABLE_EXT:
+            {
+                gl::Error error = queryObject->isResultAvailable(params);
+                if (error.isError())
+                {
+                    context->recordError(error);
+                    return;
+                }
+            }
             break;
 
           default:

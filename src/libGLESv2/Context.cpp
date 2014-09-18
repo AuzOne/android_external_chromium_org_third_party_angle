@@ -681,26 +681,35 @@ void Context::bindTransformFeedback(GLuint transformFeedback)
     mState.setTransformFeedbackBinding(getTransformFeedback(transformFeedback));
 }
 
-void Context::beginQuery(GLenum target, GLuint query)
+Error Context::beginQuery(GLenum target, GLuint query)
 {
     Query *queryObject = getQuery(query, true, target);
     ASSERT(queryObject);
 
-    // set query as active for specified target
+    // begin query
+    Error error = queryObject->begin();
+    if (error.isError())
+    {
+        return error;
+    }
+
+    // set query as active for specified target only if begin succeeded
     mState.setActiveQuery(target, queryObject);
 
-    // begin query
-    queryObject->begin();
+    return Error(GL_NO_ERROR);
 }
 
-void Context::endQuery(GLenum target)
+Error Context::endQuery(GLenum target)
 {
     Query *queryObject = mState.getActiveQuery(target);
     ASSERT(queryObject);
 
-    queryObject->end();
+    gl::Error error = queryObject->end();
 
+    // Always unbind the query, even if there was an error. This may delete the query object.
     mState.setActiveQuery(target, NULL);
+
+    return error;
 }
 
 void Context::setFramebufferZero(Framebuffer *buffer)
@@ -1391,7 +1400,7 @@ void Context::applyShaders(ProgramBinary *programBinary, bool transformFeedbackA
 {
     const VertexAttribute *vertexAttributes = mState.getVertexArray()->getVertexAttributes();
 
-    VertexFormat inputLayout[gl::MAX_VERTEX_ATTRIBS];
+    VertexFormat inputLayout[MAX_VERTEX_ATTRIBS];
     VertexFormat::GetInputLayout(inputLayout, programBinary, vertexAttributes, mState.getVertexAttribCurrentValues());
 
     const Framebuffer *fbo = mState.getDrawFramebuffer();
@@ -1488,7 +1497,7 @@ bool Context::applyUniformBuffers()
     Program *programObject = getProgram(mState.getCurrentProgramId());
     ProgramBinary *programBinary = programObject->getProgramBinary();
 
-    std::vector<gl::Buffer*> boundBuffers;
+    std::vector<Buffer*> boundBuffers;
 
     for (unsigned int uniformBlockIndex = 0; uniformBlockIndex < programBinary->getActiveUniformBlockCount(); uniformBlockIndex++)
     {
@@ -1677,7 +1686,7 @@ Error Context::clearBufferfi(GLenum buffer, int drawbuffer, float depth, int ste
 Error Context::readPixels(GLint x, GLint y, GLsizei width, GLsizei height,
                           GLenum format, GLenum type, GLsizei *bufSize, void* pixels)
 {
-    gl::Framebuffer *framebuffer = mState.getReadFramebuffer();
+    Framebuffer *framebuffer = mState.getReadFramebuffer();
 
     GLenum sizedInternalFormat = GetSizedInternalFormat(format, type);
     const InternalFormat &sizedFormatInfo = GetInternalFormatInfo(sizedInternalFormat);
@@ -1788,16 +1797,16 @@ void Context::drawElements(GLenum mode, GLsizei count, GLenum type,
     VertexArray *vao = mState.getVertexArray();
     rx::TranslatedIndexData indexInfo;
     indexInfo.indexRange = indexRange;
-    GLenum err = mRenderer->applyIndexBuffer(indices, vao->getElementArrayBuffer(), count, mode, type, &indexInfo);
-    if (err != GL_NO_ERROR)
+    Error error = mRenderer->applyIndexBuffer(indices, vao->getElementArrayBuffer(), count, mode, type, &indexInfo);
+    if (error.isError())
     {
-        return gl::error(err);
+        return gl::error(error.getCode());
     }
 
     GLsizei vertexCount = indexInfo.indexRange.length() + 1;
-    err = mRenderer->applyVertexBuffer(programBinary, vao->getVertexAttributes(),
-                                       mState.getVertexAttribCurrentValues(),
-                                       indexInfo.indexRange.start, vertexCount, instances);
+    GLenum err = mRenderer->applyVertexBuffer(programBinary, vao->getVertexAttributes(),
+                                              mState.getVertexAttribCurrentValues(),
+                                              indexInfo.indexRange.start, vertexCount, instances);
     if (err != GL_NO_ERROR)
     {
         return gl::error(err);
@@ -2232,14 +2241,16 @@ size_t Context::getBoundFramebufferTextureSerials(FramebufferTextureSerialArray 
         FramebufferAttachment *attachment = drawFramebuffer->getColorbuffer(i);
         if (attachment && attachment->isTexture())
         {
-            (*outSerialArray)[serialCount++] = attachment->getTextureSerial();
+            Texture *texture = attachment->getTexture();
+            (*outSerialArray)[serialCount++] = texture->getTextureSerial();
         }
     }
 
     FramebufferAttachment *depthStencilAttachment = drawFramebuffer->getDepthOrStencilbuffer();
     if (depthStencilAttachment && depthStencilAttachment->isTexture())
     {
-        (*outSerialArray)[serialCount++] = depthStencilAttachment->getTextureSerial();
+        Texture *depthStencilTexture = depthStencilAttachment->getTexture();
+        (*outSerialArray)[serialCount++] = depthStencilTexture->getTextureSerial();
     }
 
     std::sort(outSerialArray->begin(), outSerialArray->begin() + serialCount);
@@ -2269,11 +2280,11 @@ void Context::blitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1
         blitDepth = true;
     }
 
-    gl::Rectangle srcRect(srcX0, srcY0, srcX1 - srcX0, srcY1 - srcY0);
-    gl::Rectangle dstRect(dstX0, dstY0, dstX1 - dstX0, dstY1 - dstY0);
+    Rectangle srcRect(srcX0, srcY0, srcX1 - srcX0, srcY1 - srcY0);
+    Rectangle dstRect(dstX0, dstY0, dstX1 - dstX0, dstY1 - dstY0);
     if (blitRenderTarget || blitDepth || blitStencil)
     {
-        const gl::Rectangle *scissor = mState.isScissorTestEnabled() ? &mState.getScissor() : NULL;
+        const Rectangle *scissor = mState.isScissorTestEnabled() ? &mState.getScissor() : NULL;
         mRenderer->blitRect(readFramebuffer, srcRect, drawFramebuffer, dstRect, scissor,
                             blitRenderTarget, blitDepth, blitStencil, filter);
     }
