@@ -49,12 +49,12 @@ TextureD3D *TextureD3D::makeTextureD3D(TextureImpl *texture)
     return static_cast<TextureD3D*>(texture);
 }
 
-TextureStorageInterface *TextureD3D::getNativeTexture()
+TextureStorage *TextureD3D::getNativeTexture()
 {
     // ensure the underlying texture is created
     initializeStorage(false);
 
-    TextureStorageInterface *storage = getBaseLevelStorage();
+    TextureStorage *storage = getBaseLevelStorage();
     if (storage)
     {
         updateStorage();
@@ -244,7 +244,7 @@ Image *TextureD3D_2D::getImage(int level, int layer) const
 Image *TextureD3D_2D::getImage(const gl::ImageIndex &index) const
 {
     ASSERT(index.mipIndex < gl::IMPLEMENTATION_MAX_TEXTURE_LEVELS);
-    ASSERT(index.layerIndex == 0);
+    ASSERT(!index.hasLayer());
     ASSERT(index.type == GL_TEXTURE_2D);
     return mImageArray[index.mipIndex];
 }
@@ -305,8 +305,10 @@ void TextureD3D_2D::setImage(GLenum target, GLint level, GLsizei width, GLsizei 
     // Attempt a fast gpu copy of the pixel data to the surface
     if (isFastUnpackable(unpack, sizedInternalFormat) && isLevelComplete(level))
     {
+        gl::ImageIndex index = gl::ImageIndex::Make2D(level);
+
         // Will try to create RT storage if it does not exist
-        RenderTarget *destRenderTarget = getRenderTarget(level, 0);
+        RenderTarget *destRenderTarget = getRenderTarget(index);
         gl::Box destArea(0, 0, 0, getWidth(level), getHeight(level), 1);
 
         if (destRenderTarget && fastUnpackPixels(unpack, pixels, destArea, sizedInternalFormat, type, destRenderTarget))
@@ -340,9 +342,10 @@ void TextureD3D_2D::subImage(GLenum target, GLint level, GLint xoffset, GLint yo
 
     bool fastUnpacked = false;
 
+    gl::ImageIndex index = gl::ImageIndex::Make2D(level);
     if (isFastUnpackable(unpack, getInternalFormat(level)) && isLevelComplete(level))
     {
-        RenderTarget *renderTarget = getRenderTarget(level, 0);
+        RenderTarget *renderTarget = getRenderTarget(index);
         gl::Box destArea(xoffset, yoffset, 0, width, height, 1);
 
         if (renderTarget && fastUnpackPixels(unpack, pixels, destArea, getInternalFormat(level), type, renderTarget))
@@ -354,7 +357,6 @@ void TextureD3D_2D::subImage(GLenum target, GLint level, GLint xoffset, GLint yo
         }
     }
 
-    gl::ImageIndex index = gl::ImageIndex::Make2D(level);
     if (!fastUnpacked && TextureD3D::subImage(xoffset, yoffset, 0, width, height, 1, format, type, unpack, pixels, index))
     {
         commitRect(level, xoffset, yoffset, width, height);
@@ -396,7 +398,7 @@ void TextureD3D_2D::copyImage(GLenum target, GLint level, GLenum format, GLint x
             sourceRect.y = y;
             sourceRect.height = height;
 
-            mRenderer->copyImage(source, sourceRect, format, 0, 0, mTexStorage, level);
+            mRenderer->copyImage2D(source, sourceRect, format, 0, 0, mTexStorage, level);
         }
     }
 }
@@ -428,9 +430,9 @@ void TextureD3D_2D::copySubImage(GLenum target, GLint level, GLint xoffset, GLin
             sourceRect.y = y;
             sourceRect.height = height;
 
-            mRenderer->copyImage(source, sourceRect,
-                                 gl::GetInternalFormatInfo(getBaseLevelInternalFormat()).format,
-                                 xoffset, yoffset, mTexStorage, level);
+            mRenderer->copyImage2D(source, sourceRect,
+                                   gl::GetInternalFormatInfo(getBaseLevelInternalFormat()).format,
+                                   xoffset, yoffset, mTexStorage, level);
         }
     }
 }
@@ -453,7 +455,9 @@ void TextureD3D_2D::storage(GLenum target, GLsizei levels, GLenum internalformat
 
     mImmutable = true;
 
-    setCompleteTexStorage(new TextureStorageInterface2D(mRenderer, internalformat, IsRenderTargetUsage(mUsage), width, height, levels));
+    bool renderTarget = IsRenderTargetUsage(mUsage);
+    TextureStorage *storage = mRenderer->createTextureStorage2D(internalformat, renderTarget, width, height, levels);
+    setCompleteTexStorage(storage);
 }
 
 void TextureD3D_2D::bindTexImage(egl::Surface *surface)
@@ -466,7 +470,8 @@ void TextureD3D_2D::bindTexImage(egl::Surface *surface)
     {
         SafeDelete(mTexStorage);
     }
-    mTexStorage = new TextureStorageInterface2D(mRenderer, surface->getSwapChain());
+
+    mTexStorage = mRenderer->createTextureStorage2D(surface->getSwapChain());
 
     mDirtyImages = true;
 }
@@ -497,10 +502,9 @@ void TextureD3D_2D::generateMipmaps()
 
     if (mTexStorage && mTexStorage->isRenderTarget())
     {
+        mTexStorage->generateMipmaps();
         for (int level = 1; level < levelCount; level++)
         {
-            mTexStorage->generateMipmap(level);
-
             mImageArray[level]->markClean();
         }
     }
@@ -513,15 +517,15 @@ void TextureD3D_2D::generateMipmaps()
     }
 }
 
-unsigned int TextureD3D_2D::getRenderTargetSerial(GLint level, GLint layer)
+unsigned int TextureD3D_2D::getRenderTargetSerial(const gl::ImageIndex &index)
 {
-    ASSERT(layer == 0);
-    return (ensureRenderTarget() ? mTexStorage->getRenderTargetSerial(level) : 0);
+    ASSERT(!index.hasLayer());
+    return (ensureRenderTarget() ? mTexStorage->getRenderTargetSerial(index) : 0);
 }
 
-RenderTarget *TextureD3D_2D::getRenderTarget(GLint level, GLint layer)
+RenderTarget *TextureD3D_2D::getRenderTarget(const gl::ImageIndex &index)
 {
-    ASSERT(layer == 0);
+    ASSERT(!index.hasLayer());
 
     // ensure the underlying texture is created
     if (!ensureRenderTarget())
@@ -529,8 +533,8 @@ RenderTarget *TextureD3D_2D::getRenderTarget(GLint level, GLint layer)
         return NULL;
     }
 
-    updateStorageLevel(level);
-    return mTexStorage->getRenderTarget(level);
+    updateStorageLevel(index.mipIndex);
+    return mTexStorage->getRenderTarget(index);
 }
 
 bool TextureD3D_2D::isValidLevel(int level) const
@@ -606,20 +610,21 @@ void TextureD3D_2D::initializeStorage(bool renderTarget)
     updateStorage();
 }
 
-TextureStorageInterface2D *TextureD3D_2D::createCompleteStorage(bool renderTarget) const
+TextureStorage *TextureD3D_2D::createCompleteStorage(bool renderTarget) const
 {
     GLsizei width = getBaseLevelWidth();
     GLsizei height = getBaseLevelHeight();
+    GLenum internalFormat = getBaseLevelInternalFormat();
 
     ASSERT(width > 0 && height > 0);
 
     // use existing storage level count, when previously specified by TexStorage*D
     GLint levels = (mTexStorage ? mTexStorage->getLevelCount() : creationLevels(width, height, 1));
 
-    return new TextureStorageInterface2D(mRenderer, getBaseLevelInternalFormat(), renderTarget, width, height, levels);
+    return mRenderer->createTextureStorage2D(internalFormat, renderTarget, width, height, levels);
 }
 
-void TextureD3D_2D::setCompleteTexStorage(TextureStorageInterface2D *newCompleteTexStorage)
+void TextureD3D_2D::setCompleteTexStorage(TextureStorage *newCompleteTexStorage)
 {
     SafeDelete(mTexStorage);
     mTexStorage = newCompleteTexStorage;
@@ -628,7 +633,7 @@ void TextureD3D_2D::setCompleteTexStorage(TextureStorageInterface2D *newComplete
     {
         for (int level = 0; level < mTexStorage->getLevelCount(); level++)
         {
-            mImageArray[level]->setManagedSurface(mTexStorage, level);
+            mImageArray[level]->setManagedSurface2D(mTexStorage, level);
         }
     }
 
@@ -657,9 +662,9 @@ bool TextureD3D_2D::ensureRenderTarget()
         ASSERT(mTexStorage);
         if (!mTexStorage->isRenderTarget())
         {
-            TextureStorageInterface2D *newRenderTargetStorage = createCompleteStorage(true);
+            TextureStorage *newRenderTargetStorage = createCompleteStorage(true);
 
-            if (!mRenderer->copyToRenderTarget(newRenderTargetStorage, mTexStorage))
+            if (!mRenderer->copyToRenderTarget2D(newRenderTargetStorage, mTexStorage))
             {
                 delete newRenderTargetStorage;
                 return gl::error(GL_OUT_OF_MEMORY, false);
@@ -672,7 +677,7 @@ bool TextureD3D_2D::ensureRenderTarget()
     return (mTexStorage && mTexStorage->isRenderTarget());
 }
 
-TextureStorageInterface *TextureD3D_2D::getBaseLevelStorage()
+TextureStorage *TextureD3D_2D::getBaseLevelStorage()
 {
     return mTexStorage;
 }
@@ -727,7 +732,7 @@ void TextureD3D_2D::commitRect(GLint level, GLint xoffset, GLint yoffset, GLsize
     if (isValidLevel(level))
     {
         ImageD3D *image = mImageArray[level];
-        if (image->copyToStorage(mTexStorage, level, xoffset, yoffset, width, height))
+        if (image->copyToStorage2D(mTexStorage, level, xoffset, yoffset, width, height))
         {
             image->markClean();
         }
@@ -873,7 +878,7 @@ void TextureD3D_Cube::copyImage(GLenum target, GLint level, GLenum format, GLint
             sourceRect.y = y;
             sourceRect.height = height;
 
-            mRenderer->copyImage(source, sourceRect, format, 0, 0, mTexStorage, target, level);
+            mRenderer->copyImageCube(source, sourceRect, format, 0, 0, mTexStorage, target, level);
         }
     }
 }
@@ -906,8 +911,8 @@ void TextureD3D_Cube::copySubImage(GLenum target, GLint level, GLint xoffset, GL
             sourceRect.y = y;
             sourceRect.height = height;
 
-            mRenderer->copyImage(source, sourceRect, gl::GetInternalFormatInfo(getBaseLevelInternalFormat()).format,
-                                 xoffset, yoffset, mTexStorage, target, level);
+            mRenderer->copyImageCube(source, sourceRect, gl::GetInternalFormatInfo(getBaseLevelInternalFormat()).format,
+                                     xoffset, yoffset, mTexStorage, target, level);
         }
     }
 }
@@ -936,7 +941,9 @@ void TextureD3D_Cube::storage(GLenum target, GLsizei levels, GLenum internalform
 
     mImmutable = true;
 
-    setCompleteTexStorage(new TextureStorageInterfaceCube(mRenderer, internalformat, IsRenderTargetUsage(mUsage), width, levels));
+    bool renderTarget = IsRenderTargetUsage(mUsage);
+    TextureStorage *storage = mRenderer->createTextureStorageCube(internalformat, renderTarget, width, levels);
+    setCompleteTexStorage(storage);
 }
 
 // Tests for cube texture completeness. [OpenGL ES 2.0.24] section 3.7.10 page 81.
@@ -992,12 +999,12 @@ void TextureD3D_Cube::generateMipmaps()
 
     if (mTexStorage && mTexStorage->isRenderTarget())
     {
+        mTexStorage->generateMipmaps();
+
         for (int faceIndex = 0; faceIndex < 6; faceIndex++)
         {
             for (int level = 1; level < levelCount; level++)
             {
-                mTexStorage->generateMipmap(faceIndex, level);
-
                 mImageArray[faceIndex][level]->markClean();
             }
         }
@@ -1014,16 +1021,14 @@ void TextureD3D_Cube::generateMipmaps()
     }
 }
 
-unsigned int TextureD3D_Cube::getRenderTargetSerial(GLint level, GLint layer)
+unsigned int TextureD3D_Cube::getRenderTargetSerial(const gl::ImageIndex &index)
 {
-    GLenum target = gl::TextureCubeMap::layerIndexToTarget(layer);
-    return (ensureRenderTarget() ? mTexStorage->getRenderTargetSerial(target, level) : 0);
+    return (ensureRenderTarget() ? mTexStorage->getRenderTargetSerial(index) : 0);
 }
 
-RenderTarget *TextureD3D_Cube::getRenderTarget(GLint level, GLint layer)
+RenderTarget *TextureD3D_Cube::getRenderTarget(const gl::ImageIndex &index)
 {
-    GLenum target = gl::TextureCubeMap::layerIndexToTarget(layer);
-    ASSERT(gl::IsCubemapTextureTarget(target));
+    ASSERT(gl::IsCubemapTextureTarget(index.type));
 
     // ensure the underlying texture is created
     if (!ensureRenderTarget())
@@ -1031,8 +1036,8 @@ RenderTarget *TextureD3D_Cube::getRenderTarget(GLint level, GLint layer)
         return NULL;
     }
 
-    updateStorageFaceLevel(layer, level);
-    return mTexStorage->getRenderTarget(target, level);
+    updateStorageFaceLevel(index.layerIndex, index.mipIndex);
+    return mTexStorage->getRenderTarget(index);
 }
 
 void TextureD3D_Cube::initializeStorage(bool renderTarget)
@@ -1058,7 +1063,7 @@ void TextureD3D_Cube::initializeStorage(bool renderTarget)
     updateStorage();
 }
 
-TextureStorageInterfaceCube *TextureD3D_Cube::createCompleteStorage(bool renderTarget) const
+TextureStorage *TextureD3D_Cube::createCompleteStorage(bool renderTarget) const
 {
     GLsizei size = getBaseLevelWidth();
 
@@ -1067,10 +1072,10 @@ TextureStorageInterfaceCube *TextureD3D_Cube::createCompleteStorage(bool renderT
     // use existing storage level count, when previously specified by TexStorage*D
     GLint levels = (mTexStorage ? mTexStorage->getLevelCount() : creationLevels(size, size, 1));
 
-    return new TextureStorageInterfaceCube(mRenderer, getBaseLevelInternalFormat(), renderTarget, size, levels);
+    return mRenderer->createTextureStorageCube(getBaseLevelInternalFormat(), renderTarget, size, levels);
 }
 
-void TextureD3D_Cube::setCompleteTexStorage(TextureStorageInterfaceCube *newCompleteTexStorage)
+void TextureD3D_Cube::setCompleteTexStorage(TextureStorage *newCompleteTexStorage)
 {
     SafeDelete(mTexStorage);
     mTexStorage = newCompleteTexStorage;
@@ -1081,7 +1086,7 @@ void TextureD3D_Cube::setCompleteTexStorage(TextureStorageInterfaceCube *newComp
         {
             for (int level = 0; level < mTexStorage->getLevelCount(); level++)
             {
-                mImageArray[faceIndex][level]->setManagedSurface(mTexStorage, faceIndex, level);
+                mImageArray[faceIndex][level]->setManagedSurfaceCube(mTexStorage, faceIndex, level);
             }
         }
     }
@@ -1114,9 +1119,9 @@ bool TextureD3D_Cube::ensureRenderTarget()
         ASSERT(mTexStorage);
         if (!mTexStorage->isRenderTarget())
         {
-            TextureStorageInterfaceCube *newRenderTargetStorage = createCompleteStorage(true);
+            TextureStorage *newRenderTargetStorage = createCompleteStorage(true);
 
-            if (!mRenderer->copyToRenderTarget(newRenderTargetStorage, mTexStorage))
+            if (!mRenderer->copyToRenderTargetCube(newRenderTargetStorage, mTexStorage))
             {
                 delete newRenderTargetStorage;
                 return gl::error(GL_OUT_OF_MEMORY, false);
@@ -1129,7 +1134,7 @@ bool TextureD3D_Cube::ensureRenderTarget()
     return (mTexStorage && mTexStorage->isRenderTarget());
 }
 
-TextureStorageInterface *TextureD3D_Cube::getBaseLevelStorage()
+TextureStorage *TextureD3D_Cube::getBaseLevelStorage()
 {
     return mTexStorage;
 }
@@ -1235,7 +1240,7 @@ void TextureD3D_Cube::commitRect(int faceIndex, GLint level, GLint xoffset, GLin
     if (isValidFaceLevel(faceIndex, level))
     {
         ImageD3D *image = mImageArray[faceIndex][level];
-        if (image->copyToStorage(mTexStorage, faceIndex, level, xoffset, yoffset, width, height))
+        if (image->copyToStorageCube(mTexStorage, faceIndex, level, xoffset, yoffset, width, height))
             image->markClean();
     }
 }
@@ -1274,7 +1279,7 @@ Image *TextureD3D_3D::getImage(int level, int layer) const
 Image *TextureD3D_3D::getImage(const gl::ImageIndex &index) const
 {
     ASSERT(index.mipIndex < gl::IMPLEMENTATION_MAX_TEXTURE_LEVELS);
-    ASSERT(index.layerIndex == 0);
+    ASSERT(!index.hasLayer());
     ASSERT(index.type == GL_TEXTURE_3D);
     return mImageArray[index.mipIndex];
 }
@@ -1335,7 +1340,8 @@ void TextureD3D_3D::setImage(GLenum target, GLint level, GLsizei width, GLsizei 
     if (isFastUnpackable(unpack, sizedInternalFormat))
     {
         // Will try to create RT storage if it does not exist
-        RenderTarget *destRenderTarget = getRenderTarget(level);
+        gl::ImageIndex index = gl::ImageIndex::Make3D(level);
+        RenderTarget *destRenderTarget = getRenderTarget(index);
         gl::Box destArea(0, 0, 0, getWidth(level), getHeight(level), getDepth(level));
 
         if (destRenderTarget && fastUnpackPixels(unpack, pixels, destArea, sizedInternalFormat, type, destRenderTarget))
@@ -1369,10 +1375,12 @@ void TextureD3D_3D::subImage(GLenum target, GLint level, GLint xoffset, GLint yo
 
     bool fastUnpacked = false;
 
+    gl::ImageIndex index = gl::ImageIndex::Make3D(level);
+
     // Attempt a fast gpu copy of the pixel data to the surface if the app bound an unpack buffer
     if (isFastUnpackable(unpack, getInternalFormat(level)))
     {
-        RenderTarget *destRenderTarget = getRenderTarget(level);
+        RenderTarget *destRenderTarget = getRenderTarget(index);
         gl::Box destArea(xoffset, yoffset, zoffset, width, height, depth);
 
         if (destRenderTarget && fastUnpackPixels(unpack, pixels, destArea, getInternalFormat(level), type, destRenderTarget))
@@ -1384,7 +1392,6 @@ void TextureD3D_3D::subImage(GLenum target, GLint level, GLint xoffset, GLint yo
         }
     }
 
-    gl::ImageIndex index = gl::ImageIndex::Make3D(level);
     if (!fastUnpacked && TextureD3D::subImage(xoffset, yoffset, zoffset, width, height, depth, format, type, unpack, pixels, index))
     {
         commitRect(level, xoffset, yoffset, zoffset, width, height, depth);
@@ -1433,9 +1440,9 @@ void TextureD3D_3D::copySubImage(GLenum target, GLint level, GLint xoffset, GLin
             sourceRect.y = y;
             sourceRect.height = height;
 
-            mRenderer->copyImage(source, sourceRect,
-                                 gl::GetInternalFormatInfo(getBaseLevelInternalFormat()).format,
-                                 xoffset, yoffset, zoffset, mTexStorage, level);
+            mRenderer->copyImage3D(source, sourceRect,
+                                   gl::GetInternalFormatInfo(getBaseLevelInternalFormat()).format,
+                                   xoffset, yoffset, zoffset, mTexStorage, level);
         }
     }
 }
@@ -1459,7 +1466,9 @@ void TextureD3D_3D::storage(GLenum target, GLsizei levels, GLenum internalformat
 
     mImmutable = true;
 
-    setCompleteTexStorage(new TextureStorageInterface3D(mRenderer, internalformat, IsRenderTargetUsage(mUsage), width, height, depth, levels));
+    bool renderTarget = IsRenderTargetUsage(mUsage);
+    TextureStorage *storage = mRenderer->createTextureStorage3D(internalformat, renderTarget, width, height, depth, levels);
+    setCompleteTexStorage(storage);
 }
 
 void TextureD3D_3D::bindTexImage(egl::Surface *surface)
@@ -1487,10 +1496,10 @@ void TextureD3D_3D::generateMipmaps()
 
     if (mTexStorage && mTexStorage->isRenderTarget())
     {
+        mTexStorage->generateMipmaps();
+
         for (int level = 1; level < levelCount; level++)
         {
-            mTexStorage->generateMipmap(level);
-
             mImageArray[level]->markClean();
         }
     }
@@ -1503,12 +1512,12 @@ void TextureD3D_3D::generateMipmaps()
     }
 }
 
-unsigned int TextureD3D_3D::getRenderTargetSerial(GLint level, GLint layer)
+unsigned int TextureD3D_3D::getRenderTargetSerial(const gl::ImageIndex &index)
 {
-    return (ensureRenderTarget() ? mTexStorage->getRenderTargetSerial(level, layer) : 0);
+    return (ensureRenderTarget() ? mTexStorage->getRenderTargetSerial(index) : 0);
 }
 
-RenderTarget *TextureD3D_3D::getRenderTarget(GLint level)
+RenderTarget *TextureD3D_3D::getRenderTarget(const gl::ImageIndex &index)
 {
     // ensure the underlying texture is created
     if (!ensureRenderTarget())
@@ -1516,28 +1525,16 @@ RenderTarget *TextureD3D_3D::getRenderTarget(GLint level)
         return NULL;
     }
 
-    updateStorageLevel(level);
-
-    // ensure this is NOT a depth texture
-    if (isDepth(level))
+    if (index.hasLayer())
     {
-        return NULL;
+        updateStorage();
+    }
+    else
+    {
+        updateStorageLevel(index.mipIndex);
     }
 
-    return mTexStorage->getRenderTarget(level);
-}
-
-RenderTarget *TextureD3D_3D::getRenderTarget(GLint level, GLint layer)
-{
-    // ensure the underlying texture is created
-    if (!ensureRenderTarget())
-    {
-        return NULL;
-    }
-
-    updateStorage();
-
-    return mTexStorage->getRenderTarget(level, layer);
+    return mTexStorage->getRenderTarget(index);
 }
 
 void TextureD3D_3D::initializeStorage(bool renderTarget)
@@ -1563,21 +1560,22 @@ void TextureD3D_3D::initializeStorage(bool renderTarget)
     updateStorage();
 }
 
-TextureStorageInterface3D *TextureD3D_3D::createCompleteStorage(bool renderTarget) const
+TextureStorage *TextureD3D_3D::createCompleteStorage(bool renderTarget) const
 {
     GLsizei width = getBaseLevelWidth();
     GLsizei height = getBaseLevelHeight();
     GLsizei depth = getBaseLevelDepth();
+    GLenum internalFormat = getBaseLevelInternalFormat();
 
     ASSERT(width > 0 && height > 0 && depth > 0);
 
     // use existing storage level count, when previously specified by TexStorage*D
     GLint levels = (mTexStorage ? mTexStorage->getLevelCount() : creationLevels(width, height, depth));
 
-    return new TextureStorageInterface3D(mRenderer, getBaseLevelInternalFormat(), renderTarget, width, height, depth, levels);
+    return mRenderer->createTextureStorage3D(internalFormat, renderTarget, width, height, depth, levels);
 }
 
-void TextureD3D_3D::setCompleteTexStorage(TextureStorageInterface3D *newCompleteTexStorage)
+void TextureD3D_3D::setCompleteTexStorage(TextureStorage *newCompleteTexStorage)
 {
     SafeDelete(mTexStorage);
     mTexStorage = newCompleteTexStorage;
@@ -1609,9 +1607,9 @@ bool TextureD3D_3D::ensureRenderTarget()
         ASSERT(mTexStorage);
         if (!mTexStorage->isRenderTarget())
         {
-            TextureStorageInterface3D *newRenderTargetStorage = createCompleteStorage(true);
+            TextureStorage *newRenderTargetStorage = createCompleteStorage(true);
 
-            if (!mRenderer->copyToRenderTarget(newRenderTargetStorage, mTexStorage))
+            if (!mRenderer->copyToRenderTarget3D(newRenderTargetStorage, mTexStorage))
             {
                 delete newRenderTargetStorage;
                 return gl::error(GL_OUT_OF_MEMORY, false);
@@ -1624,7 +1622,7 @@ bool TextureD3D_3D::ensureRenderTarget()
     return (mTexStorage && mTexStorage->isRenderTarget());
 }
 
-TextureStorageInterface *TextureD3D_3D::getBaseLevelStorage()
+TextureStorage *TextureD3D_3D::getBaseLevelStorage()
 {
     return mTexStorage;
 }
@@ -1734,7 +1732,7 @@ void TextureD3D_3D::commitRect(GLint level, GLint xoffset, GLint yoffset, GLint 
     if (isValidLevel(level))
     {
         ImageD3D *image = mImageArray[level];
-        if (image->copyToStorage(mTexStorage, level, xoffset, yoffset, zoffset, width, height, depth))
+        if (image->copyToStorage3D(mTexStorage, level, xoffset, yoffset, zoffset, width, height, depth))
         {
             image->markClean();
         }
@@ -1914,8 +1912,8 @@ void TextureD3D_2DArray::copySubImage(GLenum target, GLint level, GLint xoffset,
             sourceRect.y = y;
             sourceRect.height = height;
 
-            mRenderer->copyImage(source, sourceRect, gl::GetInternalFormatInfo(getInternalFormat(0)).format,
-                                 xoffset, yoffset, zoffset, mTexStorage, level);
+            mRenderer->copyImage2DArray(source, sourceRect, gl::GetInternalFormatInfo(getInternalFormat(0)).format,
+                                        xoffset, yoffset, zoffset, mTexStorage, level);
         }
     }
 }
@@ -1948,7 +1946,10 @@ void TextureD3D_2DArray::storage(GLenum target, GLsizei levels, GLenum internalf
     }
 
     mImmutable = true;
-    setCompleteTexStorage(new TextureStorageInterface2DArray(mRenderer, internalformat, IsRenderTargetUsage(mUsage), width, height, depth, levels));
+
+    bool renderTarget = IsRenderTargetUsage(mUsage);
+    TextureStorage *storage = mRenderer->createTextureStorage2DArray(internalformat, renderTarget, width, height, depth, levels);
+    setCompleteTexStorage(storage);
 }
 
 void TextureD3D_2DArray::bindTexImage(egl::Surface *surface)
@@ -1978,10 +1979,10 @@ void TextureD3D_2DArray::generateMipmaps()
 
     if (mTexStorage && mTexStorage->isRenderTarget())
     {
+        mTexStorage->generateMipmaps();
+
         for (int level = 1; level < levelCount; level++)
         {
-            mTexStorage->generateMipmap(level);
-
             for (int layer = 0; layer < mLayerCounts[level]; layer++)
             {
                 mImageArray[level][layer]->markClean();
@@ -2000,12 +2001,12 @@ void TextureD3D_2DArray::generateMipmaps()
     }
 }
 
-unsigned int TextureD3D_2DArray::getRenderTargetSerial(GLint level, GLint layer)
+unsigned int TextureD3D_2DArray::getRenderTargetSerial(const gl::ImageIndex &index)
 {
-    return (ensureRenderTarget() ? mTexStorage->getRenderTargetSerial(level, layer) : 0);
+    return (ensureRenderTarget() ? mTexStorage->getRenderTargetSerial(index) : 0);
 }
 
-RenderTarget *TextureD3D_2DArray::getRenderTarget(GLint level, GLint layer)
+RenderTarget *TextureD3D_2DArray::getRenderTarget(const gl::ImageIndex &index)
 {
     // ensure the underlying texture is created
     if (!ensureRenderTarget())
@@ -2013,8 +2014,8 @@ RenderTarget *TextureD3D_2DArray::getRenderTarget(GLint level, GLint layer)
         return NULL;
     }
 
-    updateStorageLevel(level);
-    return mTexStorage->getRenderTarget(level, layer);
+    updateStorageLevel(index.mipIndex);
+    return mTexStorage->getRenderTarget(index);
 }
 
 void TextureD3D_2DArray::initializeStorage(bool renderTarget)
@@ -2040,21 +2041,22 @@ void TextureD3D_2DArray::initializeStorage(bool renderTarget)
     updateStorage();
 }
 
-TextureStorageInterface2DArray *TextureD3D_2DArray::createCompleteStorage(bool renderTarget) const
+TextureStorage *TextureD3D_2DArray::createCompleteStorage(bool renderTarget) const
 {
     GLsizei width = getBaseLevelWidth();
     GLsizei height = getBaseLevelHeight();
     GLsizei depth = getLayers(0);
+    GLenum internalFormat = getBaseLevelInternalFormat();
 
     ASSERT(width > 0 && height > 0 && depth > 0);
 
     // use existing storage level count, when previously specified by TexStorage*D
     GLint levels = (mTexStorage ? mTexStorage->getLevelCount() : creationLevels(width, height, 1));
 
-    return new TextureStorageInterface2DArray(mRenderer, getBaseLevelInternalFormat(), renderTarget, width, height, depth, levels);
+    return mRenderer->createTextureStorage2DArray(internalFormat, renderTarget, width, height, depth, levels);
 }
 
-void TextureD3D_2DArray::setCompleteTexStorage(TextureStorageInterface2DArray *newCompleteTexStorage)
+void TextureD3D_2DArray::setCompleteTexStorage(TextureStorage *newCompleteTexStorage)
 {
     SafeDelete(mTexStorage);
     mTexStorage = newCompleteTexStorage;
@@ -2086,9 +2088,9 @@ bool TextureD3D_2DArray::ensureRenderTarget()
         ASSERT(mTexStorage);
         if (!mTexStorage->isRenderTarget())
         {
-            TextureStorageInterface2DArray *newRenderTargetStorage = createCompleteStorage(true);
+            TextureStorage *newRenderTargetStorage = createCompleteStorage(true);
 
-            if (!mRenderer->copyToRenderTarget(newRenderTargetStorage, mTexStorage))
+            if (!mRenderer->copyToRenderTarget2DArray(newRenderTargetStorage, mTexStorage))
             {
                 delete newRenderTargetStorage;
                 return gl::error(GL_OUT_OF_MEMORY, false);
@@ -2106,7 +2108,7 @@ const ImageD3D *TextureD3D_2DArray::getBaseLevelImage() const
     return (mLayerCounts[0] > 0 ? mImageArray[0][0] : NULL);
 }
 
-TextureStorageInterface *TextureD3D_2DArray::getBaseLevelStorage()
+TextureStorage *TextureD3D_2DArray::getBaseLevelStorage()
 {
     return mTexStorage;
 }
@@ -2248,7 +2250,7 @@ void TextureD3D_2DArray::commitRect(GLint level, GLint xoffset, GLint yoffset, G
     if (isValidLevel(level) && layerTarget < getLayers(level))
     {
         ImageD3D *image = mImageArray[level][layerTarget];
-        if (image->copyToStorage(mTexStorage, level, xoffset, yoffset, layerTarget, width, height))
+        if (image->copyToStorage2DArray(mTexStorage, level, xoffset, yoffset, layerTarget, width, height))
         {
             image->markClean();
         }

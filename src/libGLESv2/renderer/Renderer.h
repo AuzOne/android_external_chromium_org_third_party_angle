@@ -44,10 +44,7 @@ struct VertexAttribCurrentValueData;
 
 namespace rx
 {
-class TextureStorageInterface2D;
-class TextureStorageInterfaceCube;
-class TextureStorageInterface3D;
-class TextureStorageInterface2DArray;
+class TextureStorage;
 class VertexBuffer;
 class IndexBuffer;
 class QueryImpl;
@@ -125,7 +122,7 @@ class Renderer
                                       int stencilBackRef, bool frontFaceCCW) = 0;
 
     virtual void setScissorRectangle(const gl::Rectangle &scissor, bool enabled) = 0;
-    virtual bool setViewport(const gl::Rectangle &viewport, float zNear, float zFar, GLenum drawMode, GLenum frontFace,
+    virtual void setViewport(const gl::Rectangle &viewport, float zNear, float zFar, GLenum drawMode, GLenum frontFace,
                              bool ignoreViewport) = 0;
 
     virtual bool applyRenderTarget(gl::Framebuffer *frameBuffer) = 0;
@@ -133,8 +130,8 @@ class Renderer
                               bool rasterizerDiscard, bool transformFeedbackActive) = 0;
     virtual void applyUniforms(const gl::ProgramBinary &programBinary) = 0;
     virtual bool applyPrimitiveType(GLenum primitiveType, GLsizei elementCount) = 0;
-    virtual GLenum applyVertexBuffer(gl::ProgramBinary *programBinary, const gl::VertexAttribute vertexAttributes[], const gl::VertexAttribCurrentValueData currentValues[],
-                                     GLint first, GLsizei count, GLsizei instances) = 0;
+    virtual gl::Error applyVertexBuffer(gl::ProgramBinary *programBinary, const gl::VertexAttribute vertexAttributes[], const gl::VertexAttribCurrentValueData currentValues[],
+                                        GLint first, GLsizei count, GLsizei instances) = 0;
     virtual gl::Error applyIndexBuffer(const GLvoid *indices, gl::Buffer *elementArrayBuffer, GLsizei count, GLenum mode, GLenum type, TranslatedIndexData *indexInfo) = 0;
     virtual void applyTransformFeedbackBuffers(gl::Buffer *transformFeedbackBuffers[], GLintptr offsets[]) = 0;
 
@@ -173,19 +170,19 @@ class Renderer
     virtual int getMaxSwapInterval() const = 0;
 
     // Pixel operations
-    virtual bool copyToRenderTarget(TextureStorageInterface2D *dest, TextureStorageInterface2D *source) = 0;
-    virtual bool copyToRenderTarget(TextureStorageInterfaceCube *dest, TextureStorageInterfaceCube *source) = 0;
-    virtual bool copyToRenderTarget(TextureStorageInterface3D *dest, TextureStorageInterface3D *source) = 0;
-    virtual bool copyToRenderTarget(TextureStorageInterface2DArray *dest, TextureStorageInterface2DArray *source) = 0;
+    virtual bool copyToRenderTarget2D(TextureStorage *dest, TextureStorage *source) = 0;
+    virtual bool copyToRenderTargetCube(TextureStorage *dest, TextureStorage *source) = 0;
+    virtual bool copyToRenderTarget3D(TextureStorage *dest, TextureStorage *source) = 0;
+    virtual bool copyToRenderTarget2DArray(TextureStorage *dest, TextureStorage *source) = 0;
 
-    virtual bool copyImage(gl::Framebuffer *framebuffer, const gl::Rectangle &sourceRect, GLenum destFormat,
-                           GLint xoffset, GLint yoffset, TextureStorageInterface2D *storage, GLint level) = 0;
-    virtual bool copyImage(gl::Framebuffer *framebuffer, const gl::Rectangle &sourceRect, GLenum destFormat,
-                           GLint xoffset, GLint yoffset, TextureStorageInterfaceCube *storage, GLenum target, GLint level) = 0;
-    virtual bool copyImage(gl::Framebuffer *framebuffer, const gl::Rectangle &sourceRect, GLenum destFormat,
-                           GLint xoffset, GLint yoffset, GLint zOffset, TextureStorageInterface3D *storage, GLint level) = 0;
-    virtual bool copyImage(gl::Framebuffer *framebuffer, const gl::Rectangle &sourceRect, GLenum destFormat,
-                           GLint xoffset, GLint yoffset, GLint zOffset, TextureStorageInterface2DArray *storage, GLint level) = 0;
+    virtual bool copyImage2D(gl::Framebuffer *framebuffer, const gl::Rectangle &sourceRect, GLenum destFormat,
+                             GLint xoffset, GLint yoffset, TextureStorage *storage, GLint level) = 0;
+    virtual bool copyImageCube(gl::Framebuffer *framebuffer, const gl::Rectangle &sourceRect, GLenum destFormat,
+                               GLint xoffset, GLint yoffset, TextureStorage *storage, GLenum target, GLint level) = 0;
+    virtual bool copyImage3D(gl::Framebuffer *framebuffer, const gl::Rectangle &sourceRect, GLenum destFormat,
+                             GLint xoffset, GLint yoffset, GLint zOffset, TextureStorage *storage, GLint level) = 0;
+    virtual bool copyImage2DArray(gl::Framebuffer *framebuffer, const gl::Rectangle &sourceRect, GLenum destFormat,
+                                  GLint xoffset, GLint yoffset, GLint zOffset, TextureStorage *storage, GLint level) = 0;
 
     virtual bool blitRect(gl::Framebuffer *readTarget, const gl::Rectangle &readRect, gl::Framebuffer *drawTarget, const gl::Rectangle &drawRect,
                           const gl::Rectangle *scissor, bool blitRenderTarget, bool blitDepth, bool blitStencil, GLenum filter) = 0;

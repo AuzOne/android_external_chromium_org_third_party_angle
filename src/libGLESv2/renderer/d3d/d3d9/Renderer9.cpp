@@ -379,6 +379,17 @@ void Renderer9::initializeDevice()
         mDevice->SetRenderState(D3DRS_POINTSIZE_MAX, 0x3F800000);   // 1.0f
     }
 
+    const gl::Caps &rendererCaps = getRendererCaps();
+
+    mForceSetVertexSamplerStates.resize(rendererCaps.maxVertexTextureImageUnits);
+    mCurVertexSamplerStates.resize(rendererCaps.maxVertexTextureImageUnits);
+
+    mForceSetPixelSamplerStates.resize(rendererCaps.maxTextureImageUnits);
+    mCurPixelSamplerStates.resize(rendererCaps.maxTextureImageUnits);
+
+    mCurVertexTextureSerials.resize(rendererCaps.maxVertexTextureImageUnits);
+    mCurPixelTextureSerials.resize(rendererCaps.maxTextureImageUnits);
+
     markAllStateDirty();
 
     mSceneStarted = false;
@@ -633,8 +644,8 @@ void Renderer9::generateSwizzle(gl::Texture *texture)
 
 void Renderer9::setSamplerState(gl::SamplerType type, int index, const gl::SamplerState &samplerState)
 {
-    bool *forceSetSamplers = (type == gl::SAMPLER_PIXEL) ? mForceSetPixelSamplerStates : mForceSetVertexSamplerStates;
-    gl::SamplerState *appliedSamplers = (type == gl::SAMPLER_PIXEL) ? mCurPixelSamplerStates: mCurVertexSamplerStates;
+    std::vector<bool> &forceSetSamplers = (type == gl::SAMPLER_PIXEL) ? mForceSetPixelSamplerStates : mForceSetVertexSamplerStates;
+    std::vector<gl::SamplerState> &appliedSamplers = (type == gl::SAMPLER_PIXEL) ? mCurPixelSamplerStates: mCurVertexSamplerStates;
 
     if (forceSetSamplers[index] || memcmp(&samplerState, &appliedSamplers[index], sizeof(gl::SamplerState)) != 0)
     {
@@ -668,16 +679,16 @@ void Renderer9::setTexture(gl::SamplerType type, int index, gl::Texture *texture
     unsigned int serial = 0;
     bool forceSetTexture = false;
 
-    unsigned int *appliedSerials = (type == gl::SAMPLER_PIXEL) ? mCurPixelTextureSerials : mCurVertexTextureSerials;
+    std::vector<unsigned int> &appliedSerials = (type == gl::SAMPLER_PIXEL) ? mCurPixelTextureSerials : mCurVertexTextureSerials;
 
     if (texture)
     {
         TextureD3D* textureImpl = TextureD3D::makeTextureD3D(texture->getImplementation());
 
-        TextureStorageInterface *texStorage = textureImpl->getNativeTexture();
+        TextureStorage *texStorage = textureImpl->getNativeTexture();
         if (texStorage)
         {
-            TextureStorage9 *storage9 = TextureStorage9::makeTextureStorage9(texStorage->getStorageInstance());
+            TextureStorage9 *storage9 = TextureStorage9::makeTextureStorage9(texStorage);
             d3dTexture = storage9->getBaseTexture();
         }
         // If we get NULL back from getBaseTexture here, something went wrong
@@ -964,7 +975,7 @@ void Renderer9::setScissorRectangle(const gl::Rectangle &scissor, bool enabled)
     mForceSetScissor = false;
 }
 
-bool Renderer9::setViewport(const gl::Rectangle &viewport, float zNear, float zFar, GLenum drawMode, GLenum frontFace,
+void Renderer9::setViewport(const gl::Rectangle &viewport, float zNear, float zFar, GLenum drawMode, GLenum frontFace,
                             bool ignoreViewport)
 {
     gl::Rectangle actualViewport = viewport;
@@ -987,11 +998,6 @@ bool Renderer9::setViewport(const gl::Rectangle &viewport, float zNear, float zF
     dxViewport.Height = gl::clamp(actualViewport.height, 0, static_cast<int>(mRenderTargetDesc.height) - static_cast<int>(dxViewport.Y));
     dxViewport.MinZ = actualZNear;
     dxViewport.MaxZ = actualZFar;
-
-    if (dxViewport.Width <= 0 || dxViewport.Height <= 0)
-    {
-        return false;   // Nothing to render
-    }
 
     float depthFront = !gl::IsTriangleMode(drawMode) ? 0.0f : (frontFace == GL_CCW ? 1.0f : -1.0f);
 
@@ -1045,7 +1051,6 @@ bool Renderer9::setViewport(const gl::Rectangle &viewport, float zNear, float zF
     }
 
     mForceSetViewport = false;
-    return true;
 }
 
 bool Renderer9::applyPrimitiveType(GLenum mode, GLsizei count)
@@ -1255,14 +1260,14 @@ bool Renderer9::applyRenderTarget(gl::Framebuffer *framebuffer)
     return true;
 }
 
-GLenum Renderer9::applyVertexBuffer(gl::ProgramBinary *programBinary, const gl::VertexAttribute vertexAttributes[], const gl::VertexAttribCurrentValueData currentValues[],
-                                    GLint first, GLsizei count, GLsizei instances)
+gl::Error Renderer9::applyVertexBuffer(gl::ProgramBinary *programBinary, const gl::VertexAttribute vertexAttributes[], const gl::VertexAttribCurrentValueData currentValues[],
+                                       GLint first, GLsizei count, GLsizei instances)
 {
     TranslatedAttribute attributes[gl::MAX_VERTEX_ATTRIBS];
-    GLenum err = mVertexDataManager->prepareVertexData(vertexAttributes, currentValues, programBinary, first, count, attributes, instances);
-    if (err != GL_NO_ERROR)
+    gl::Error error = mVertexDataManager->prepareVertexData(vertexAttributes, currentValues, programBinary, first, count, attributes, instances);
+    if (error.isError())
     {
-        return err;
+        return error;
     }
 
     return mVertexDeclarationCache.applyDeclaration(mDevice, attributes, programBinary, instances, &mRepeatDraw);
@@ -2028,12 +2033,15 @@ void Renderer9::markAllStateDirty()
     mForceSetViewport = true;
     mForceSetBlendState = true;
 
-    for (unsigned int i = 0; i < gl::IMPLEMENTATION_MAX_VERTEX_TEXTURE_IMAGE_UNITS; i++)
+    ASSERT(mForceSetVertexSamplerStates.size() == mCurVertexTextureSerials.size());
+    for (unsigned int i = 0; i < mForceSetVertexSamplerStates.size(); i++)
     {
         mForceSetVertexSamplerStates[i] = true;
         mCurVertexTextureSerials[i] = 0;
     }
-    for (unsigned int i = 0; i < gl::MAX_TEXTURE_IMAGE_UNITS; i++)
+
+    ASSERT(mForceSetPixelSamplerStates.size() == mCurPixelTextureSerials.size());
+    for (unsigned int i = 0; i < mForceSetPixelSamplerStates.size(); i++)
     {
         mForceSetPixelSamplerStates[i] = true;
         mCurPixelTextureSerials[i] = 0;
@@ -2327,14 +2335,14 @@ int Renderer9::getMaxSwapInterval() const
     return mMaxSwapInterval;
 }
 
-bool Renderer9::copyToRenderTarget(TextureStorageInterface2D *dest, TextureStorageInterface2D *source)
+bool Renderer9::copyToRenderTarget2D(TextureStorage *dest, TextureStorage *source)
 {
     bool result = false;
 
     if (source && dest)
     {
-        TextureStorage9_2D *source9 = TextureStorage9_2D::makeTextureStorage9_2D(source->getStorageInstance());
-        TextureStorage9_2D *dest9 = TextureStorage9_2D::makeTextureStorage9_2D(dest->getStorageInstance());
+        TextureStorage9_2D *source9 = TextureStorage9_2D::makeTextureStorage9_2D(source);
+        TextureStorage9_2D *dest9 = TextureStorage9_2D::makeTextureStorage9_2D(dest);
 
         int levels = source9->getLevelCount();
         for (int i = 0; i < levels; ++i)
@@ -2357,14 +2365,14 @@ bool Renderer9::copyToRenderTarget(TextureStorageInterface2D *dest, TextureStora
     return result;
 }
 
-bool Renderer9::copyToRenderTarget(TextureStorageInterfaceCube *dest, TextureStorageInterfaceCube *source)
+bool Renderer9::copyToRenderTargetCube(TextureStorage *dest, TextureStorage *source)
 {
     bool result = false;
 
     if (source && dest)
     {
-        TextureStorage9_Cube *source9 = TextureStorage9_Cube::makeTextureStorage9_Cube(source->getStorageInstance());
-        TextureStorage9_Cube *dest9 = TextureStorage9_Cube::makeTextureStorage9_Cube(dest->getStorageInstance());
+        TextureStorage9_Cube *source9 = TextureStorage9_Cube::makeTextureStorage9_Cube(source);
+        TextureStorage9_Cube *dest9 = TextureStorage9_Cube::makeTextureStorage9_Cube(dest);
         int levels = source9->getLevelCount();
         for (int f = 0; f < 6; f++)
         {
@@ -2389,14 +2397,14 @@ bool Renderer9::copyToRenderTarget(TextureStorageInterfaceCube *dest, TextureSto
     return result;
 }
 
-bool Renderer9::copyToRenderTarget(TextureStorageInterface3D *dest, TextureStorageInterface3D *source)
+bool Renderer9::copyToRenderTarget3D(TextureStorage *dest, TextureStorage *source)
 {
     // 3D textures are not available in the D3D9 backend.
     UNREACHABLE();
     return false;
 }
 
-bool Renderer9::copyToRenderTarget(TextureStorageInterface2DArray *dest, TextureStorageInterface2DArray *source)
+bool Renderer9::copyToRenderTarget2DArray(TextureStorage *dest, TextureStorage *source)
 {
     // 2D array textures are not supported by the D3D9 backend.
     UNREACHABLE();
@@ -2420,8 +2428,8 @@ D3DPOOL Renderer9::getBufferPool(DWORD usage) const
     return D3DPOOL_DEFAULT;
 }
 
-bool Renderer9::copyImage(gl::Framebuffer *framebuffer, const gl::Rectangle &sourceRect, GLenum destFormat,
-                          GLint xoffset, GLint yoffset, TextureStorageInterface2D *storage, GLint level)
+bool Renderer9::copyImage2D(gl::Framebuffer *framebuffer, const gl::Rectangle &sourceRect, GLenum destFormat,
+                            GLint xoffset, GLint yoffset, TextureStorage *storage, GLint level)
 {
     RECT rect;
     rect.left = sourceRect.x;
@@ -2429,11 +2437,11 @@ bool Renderer9::copyImage(gl::Framebuffer *framebuffer, const gl::Rectangle &sou
     rect.right = sourceRect.x + sourceRect.width;
     rect.bottom = sourceRect.y + sourceRect.height;
 
-    return mBlit->copy(framebuffer, rect, destFormat, xoffset, yoffset, storage, level);
+    return mBlit->copy2D(framebuffer, rect, destFormat, xoffset, yoffset, storage, level);
 }
 
-bool Renderer9::copyImage(gl::Framebuffer *framebuffer, const gl::Rectangle &sourceRect, GLenum destFormat,
-                          GLint xoffset, GLint yoffset, TextureStorageInterfaceCube *storage, GLenum target, GLint level)
+bool Renderer9::copyImageCube(gl::Framebuffer *framebuffer, const gl::Rectangle &sourceRect, GLenum destFormat,
+                              GLint xoffset, GLint yoffset, TextureStorage *storage, GLenum target, GLint level)
 {
     RECT rect;
     rect.left = sourceRect.x;
@@ -2441,19 +2449,19 @@ bool Renderer9::copyImage(gl::Framebuffer *framebuffer, const gl::Rectangle &sou
     rect.right = sourceRect.x + sourceRect.width;
     rect.bottom = sourceRect.y + sourceRect.height;
 
-    return mBlit->copy(framebuffer, rect, destFormat, xoffset, yoffset, storage, target, level);
+    return mBlit->copyCube(framebuffer, rect, destFormat, xoffset, yoffset, storage, target, level);
 }
 
-bool Renderer9::copyImage(gl::Framebuffer *framebuffer, const gl::Rectangle &sourceRect, GLenum destFormat,
-                          GLint xoffset, GLint yoffset, GLint zOffset, TextureStorageInterface3D *storage, GLint level)
+bool Renderer9::copyImage3D(gl::Framebuffer *framebuffer, const gl::Rectangle &sourceRect, GLenum destFormat,
+                            GLint xoffset, GLint yoffset, GLint zOffset, TextureStorage *storage, GLint level)
 {
     // 3D textures are not available in the D3D9 backend.
     UNREACHABLE();
     return false;
 }
 
-bool Renderer9::copyImage(gl::Framebuffer *framebuffer, const gl::Rectangle &sourceRect, GLenum destFormat,
-                          GLint xoffset, GLint yoffset, GLint zOffset, TextureStorageInterface2DArray *storage, GLint level)
+bool Renderer9::copyImage2DArray(gl::Framebuffer *framebuffer, const gl::Rectangle &sourceRect, GLenum destFormat,
+                                 GLint xoffset, GLint yoffset, GLint zOffset, TextureStorage *storage, GLint level)
 {
     // 2D array textures are not available in the D3D9 backend.
     UNREACHABLE();
@@ -3088,12 +3096,9 @@ TextureImpl *Renderer9::createTexture(GLenum target)
 {
     switch(target)
     {
-      case GL_TEXTURE_2D: return new TextureD3D_2D(this);
+      case GL_TEXTURE_2D:       return new TextureD3D_2D(this);
       case GL_TEXTURE_CUBE_MAP: return new TextureD3D_Cube(this);
-      case GL_TEXTURE_3D: return new TextureD3D_3D(this);
-      case GL_TEXTURE_2D_ARRAY: return new TextureD3D_2DArray(this);
-      default:
-        UNREACHABLE();
+      default:                  UNREACHABLE();
     }
 
     return NULL;
