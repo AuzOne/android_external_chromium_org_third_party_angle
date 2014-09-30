@@ -7,11 +7,11 @@
 #ifndef SAMPLE_UTIL_WIN32_WINDOW_H
 #define SAMPLE_UTIL_WIN32_WINDOW_H
 
-#include "Window.h"
+#include "OSWindow.h"
 #include <string>
 #include <windows.h>
 
-class Win32Window : public Window
+class Win32Window : public OSWindow
 {
   public:
     Win32Window();
@@ -25,15 +25,18 @@ class Win32Window : public Window
 
     void messageLoop();
 
-    bool popEvent(Event *event);
-    void pushEvent(Event event);
+    virtual void pushEvent(Event event);
 
     void setMousePosition(int x, int y);
+    bool resize(int width, int height);
+    bool setVisible(bool isVisible);
 
   private:
-    std::string mClassName;
+    std::string mParentClassName;
+    std::string mChildClassName;
 
     EGLNativeWindowType mNativeWindow;
+    EGLNativeWindowType mParentWindow;
     EGLNativeDisplayType mNativeDisplay;
 };
 
